@@ -138,8 +138,19 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    if (details.url && details.url !== 'about:blank') {
+      shell.openExternal(details.url)
+    }
     return { action: 'deny' }
+  })
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (is.dev && url.startsWith(process.env['ELECTRON_RENDERER_URL'] ?? '')) return
+    if (!is.dev && url.startsWith('file://')) return
+    event.preventDefault()
+    if (url.startsWith('https://') || url.startsWith('http://')) {
+      shell.openExternal(url)
+    }
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {

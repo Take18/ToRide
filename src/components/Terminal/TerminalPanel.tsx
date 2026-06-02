@@ -49,6 +49,11 @@ export default function TerminalPanel() {
       theme: {
         background: '#1a1b1e',
         foreground: '#e2e8f0'
+      },
+      linkHandler: {
+        activate: (_event, url) => {
+          window.api.shell.openExternal(url)
+        }
       }
     })
     const fitAddon = new FitAddon()
