@@ -107,8 +107,7 @@ export default function SettingsPage() {
   const dragSrc = useRef<{ ri: number; pi: number; di: number } | null>(null)
   const [dragOver, setDragOver] = useState<{ ri: number; pi: number; di: number; position: 'top' | 'bottom' } | null>(null)
   const [newExtraPath, setNewExtraPath] = useState('')
-  const [prSyncing, setPrSyncing] = useState(false)
-  const [prSyncResult, setPrSyncResult] = useState<{ created: number; total: number } | null>(null)
+
   const [, setImportResult] = useState<'ok' | 'cancelled' | 'error' | null>(null)
   const [hookStatus, setHookStatus] = useState<{ installed: boolean; path: string; managedByApp: boolean; registeredInSettings: boolean } | null>(null)
   const [hookLoading, setHookLoading] = useState(false)
@@ -382,18 +381,6 @@ export default function SettingsPage() {
     }
   }, [])
 
-  const handleSyncPRs = useCallback(async () => {
-    setPrSyncing(true)
-    setPrSyncResult(null)
-    try {
-      const result = await window.api.github.syncPRs()
-      setPrSyncResult(result)
-    } catch (e) {
-      setToast({ message: `PR同期に失敗しました: ${(e as Error).message}`, type: 'error' })
-    } finally {
-      setPrSyncing(false)
-    }
-  }, [])
 
   const inputClass = 'px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-400 focus:outline-none focus:border-blue-500'
 
@@ -936,20 +923,6 @@ export default function SettingsPage() {
                 }
                 className={`${inputClass} w-24`}
               />
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleSyncPRs}
-                disabled={prSyncing || !settings.githubUsername || !settings.githubPat}
-                className="px-4 py-1.5 rounded text-sm bg-green-700 hover:bg-green-600 text-white disabled:opacity-40"
-              >
-                {prSyncing ? '同期中...' : '今すぐ同期'}
-              </button>
-              {prSyncResult && (
-                <span className="text-xs text-gray-400">
-                  {prSyncResult.total} 件中 {prSyncResult.created} 件を新規作成
-                </span>
-              )}
             </div>
           </div>
         </section>

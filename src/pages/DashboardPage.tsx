@@ -20,6 +20,7 @@ export default function DashboardPage() {
   const [editingTask, setEditingTask] = useState<RuntimeTask | null>(null)
   const [repos, setRepos] = useState<RepoConfig[]>([])
   const [settingsLaunchMode, setSettingsLaunchMode] = useState<LaunchMode>('normal')
+  const [prSyncing, setPrSyncing] = useState(false)
   const fetchTasks = useTaskStore((s) => s.fetchTasks)
   const filteredTasks = useTaskStore((s) => s.filteredTasks)
   const tasks = useTaskStore((s) => s.tasks)
@@ -112,9 +113,22 @@ export default function DashboardPage() {
     return repo.panes.some((p) => !occupiedPaneKeys.has(`${repo.id}:${p.id}`))
   }
 
+  const handleSyncPRs = async () => {
+    setPrSyncing(true)
+    try {
+      await window.api.github.syncPRs()
+    } finally {
+      setPrSyncing(false)
+    }
+  }
+
   return (
     <div className="h-screen flex flex-col">
-      <FilterBar onNewTask={() => { setEditingTask(null); setFormOpen(true) }} />
+      <FilterBar
+        onNewTask={() => { setEditingTask(null); setFormOpen(true) }}
+        onSyncPRs={handleSyncPRs}
+        prSyncing={prSyncing}
+      />
 
       <div className="flex flex-1 overflow-hidden">
         <PaneStatusSidebar />
