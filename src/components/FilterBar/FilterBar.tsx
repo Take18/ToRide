@@ -72,7 +72,7 @@ export default function FilterBar({ onNewTask, onSyncPRs, prSyncing }: Props) {
         <button
           onClick={onSyncPRs}
           disabled={prSyncing}
-          className="px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-sm text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-3 py-1.5 rounded bg-green-700 hover:bg-green-600 text-sm text-white disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {prSyncing ? '同期中...' : 'PR同期'}
         </button>
