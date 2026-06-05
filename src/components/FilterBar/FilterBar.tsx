@@ -13,9 +13,11 @@ const TASK_TYPES: { value: TaskType; label: string; color: string }[] = [
 
 type Props = {
   onNewTask: () => void
+  onSyncPRs?: () => void
+  prSyncing?: boolean
 }
 
-export default function FilterBar({ onNewTask }: Props) {
+export default function FilterBar({ onNewTask, onSyncPRs, prSyncing }: Props) {
   const navigate = useNavigate()
   const searchQuery = useTaskStore((s) => s.searchQuery)
   const typeFilters = useTaskStore((s) => s.typeFilters)
@@ -66,6 +68,15 @@ export default function FilterBar({ onNewTask }: Props) {
 
       <div className="flex-1" />
 
+      {onSyncPRs && (
+        <button
+          onClick={onSyncPRs}
+          disabled={prSyncing}
+          className="px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-sm text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {prSyncing ? '同期中...' : 'PR同期'}
+        </button>
+      )}
       <button
         onClick={() => navigate('/archive')}
         className="px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-sm text-gray-300"
