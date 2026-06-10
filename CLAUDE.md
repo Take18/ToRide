@@ -43,7 +43,7 @@ electron/
       LocalHttpServer.ts  # 共有HTTPサーバー（addRoute()で複数エンドポイント登録）
       StopHookService.ts  # Stop Hook管理・/task-doneエンドポイント
       ContextLineService.ts # Status Line Hook管理・/context-updateエンドポイント
-      McpServerService.ts # MCPサーバー（SSEトランスポート・create_task/list_tasks/update_task）
+      McpServerService.ts # MCPサーバー（タスクCRUD・開発サーバー制御ツールを公開）
       McpHookService.ts   # ~/.claude/settings.json のmcpServers自動管理
     plugins/
       PluginRegistry.ts   # プラグインレジストリ
@@ -135,7 +135,7 @@ src/
   - chore: `{directory}`
 - **Stop Hook**: `~/.claude/hooks/stop.sh` でタスク完了を検知・HTTP通知（設定画面からインストール）
 - **Status Line Hook**: `~/.claude/statusline.sh` で各APIレスポンス後にコンテキスト使用量をリアルタイム更新（設定画面からインストール）
-- **MCP サーバー**: SSEトランスポートで `create_task` / `list_tasks` / `update_task` ツールを公開（設定画面からインストール、`~/.claude/settings.json` に自動登録）
+- **MCP サーバー**: `create_task` / `list_tasks` / `list_repos` / `update_task` / `delete_task` / `list_dev_servers` / `start_dev_server` / `stop_dev_server` ツールを公開（設定画面からインストール、`~/.claude/settings.json` に自動登録）
 
 ### Git 連携
 

@@ -242,7 +242,7 @@ app.whenReady().then(() => {
   const stopHookService = new StopHookService(localHttpServer)
   const contextLineService = new ContextLineService(localHttpServer)
   const mcpHookService = new McpHookService()
-  new McpServerService(localHttpServer, taskService, getSettings, () => {
+  new McpServerService(localHttpServer, taskService, devServerService, getSettings, () => {
     getWindow()?.webContents.send('tasks:updated')
   })
   const claudeService = new ClaudeService(terminalService, getSettings, contextLineService)
