@@ -36,9 +36,10 @@ export class StopHookService {
       try {
         const { taskId } = JSON.parse(body) as { taskId?: string }
         if (taskId) {
+          // ターン終了のたびに通知するため、コールバックは削除せず維持する
+          // （削除は removeTaskCallback / 上書き登録に任せる）
           const cb = this.callbacks.get(taskId)
           if (cb) {
-            this.callbacks.delete(taskId)
             cb()
           }
         }
