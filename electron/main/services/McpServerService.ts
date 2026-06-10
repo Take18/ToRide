@@ -3,6 +3,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import type { LocalHttpServer } from './LocalHttpServer.js'
 import type { TaskService } from './TaskService.js'
+import type { DevServerService } from './DevServerService.js'
 import type { Task } from '../../../src/types/task.js'
 import type { AppSettings } from '../../../src/types/ipc.js'
 
@@ -10,6 +11,7 @@ export class McpServerService {
   constructor(
     localServer: LocalHttpServer,
     taskService: TaskService,
+    devServerService: DevServerService,
     getSettings: () => AppSettings,
     notifyTasksUpdated: () => void = () => {}
   ) {
@@ -94,6 +96,39 @@ export class McpServerService {
               required: ['id'],
             },
           },
+          {
+            name: 'list_dev_servers',
+            description:
+              '設定済みの開発サーバーの一覧と起動状態を取得する。start_dev_server / stop_dev_server に使う repoId / paneId / label がわかる',
+            inputSchema: { type: 'object' as const, properties: {} },
+          },
+          {
+            name: 'start_dev_server',
+            description:
+              '開発サーバーを起動する。すでに起動中の場合は再起動される。起動は非同期のため、結果は list_dev_servers で確認できる',
+            inputSchema: {
+              type: 'object' as const,
+              properties: {
+                repoId: { type: 'string', description: 'リポジトリID（list_dev_servers で確認可能）' },
+                paneId: { type: 'string', description: 'ペインID' },
+                label: { type: 'string', description: '開発サーバーのラベル' },
+              },
+              required: ['repoId', 'paneId', 'label'],
+            },
+          },
+          {
+            name: 'stop_dev_server',
+            description: '起動中の開発サーバーを停止する',
+            inputSchema: {
+              type: 'object' as const,
+              properties: {
+                repoId: { type: 'string', description: 'リポジトリID（list_dev_servers で確認可能）' },
+                paneId: { type: 'string', description: 'ペインID' },
+                label: { type: 'string', description: '開発サーバーのラベル' },
+              },
+              required: ['repoId', 'paneId', 'label'],
+            },
+          },
         ],
       }))
 
@@ -144,6 +179,50 @@ export class McpServerService {
               taskService.delete(id)
               notifyTasksUpdated()
               return { content: [{ type: 'text' as const, text: `deleted: ${id}` }] }
+            }
+            case 'list_dev_servers': {
+              const statuses = devServerService.status()
+              const servers = getSettings().repos.flatMap((repo) =>
+                repo.panes.flatMap((pane) =>
+                  pane.devServers.map((server) => {
+                    const status = statuses.find(
+                      (s) => s.repoId === repo.id && s.paneId === pane.id && s.label === server.label
+                    )
+                    return {
+                      repoId: repo.id,
+                      repoName: repo.name,
+                      paneId: pane.id,
+                      label: server.label,
+                      port: server.port,
+                      running: status?.running ?? false,
+                      pid: status?.pid,
+                    }
+                  })
+                )
+              )
+              return { content: [{ type: 'text' as const, text: JSON.stringify(servers, null, 2) }] }
+            }
+            case 'start_dev_server': {
+              const { repoId, paneId, label } = args as { repoId: string; paneId: string; label: string }
+              const repo = getSettings().repos.find((r) => r.id === repoId)
+              if (!repo) {
+                throw new Error(`Repo not found: ${repoId}. Use list_dev_servers to get valid IDs.`)
+              }
+              const paneConfig = repo.panes.find((p) => p.id === paneId)
+              if (!paneConfig) {
+                throw new Error(`Pane not found: ${paneId} in repo ${repoId}`)
+              }
+              const serverConfig = paneConfig.devServers.find((s) => s.label === label)
+              if (!serverConfig) {
+                throw new Error(`Dev server not found: ${label} in pane ${paneId}`)
+              }
+              devServerService.start(repoId, paneConfig, serverConfig)
+              return { content: [{ type: 'text' as const, text: `started: ${repoId}:${paneId}:${label}` }] }
+            }
+            case 'stop_dev_server': {
+              const { repoId, paneId, label } = args as { repoId: string; paneId: string; label: string }
+              devServerService.stop(repoId, paneId, label)
+              return { content: [{ type: 'text' as const, text: `stopped: ${repoId}:${paneId}:${label}` }] }
             }
             default:
               throw new Error(`Unknown tool: ${req.params.name}`)
