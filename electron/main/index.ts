@@ -253,7 +253,7 @@ app.whenReady().then(() => {
 
   // Register IPC handlers
   registerTaskHandlers(taskService, getSettings)
-  registerTerminalHandlers(terminalService, getWindow)
+  registerTerminalHandlers(terminalService, getWindow, stopHookService)
   registerGitHandlers(gitService)
   registerClaudeHandlers(
     claudeService,
