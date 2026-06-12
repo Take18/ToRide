@@ -143,6 +143,7 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
     if (editTask) {
       const common = {
         title: form.title,
+        ...(form.type !== 'chore' ? { repoId: form.repoId || undefined } : {}),
         depends_on: form.depends_on || undefined,
         prompt: form.prompt || undefined,
         branch: form.branch || undefined,
