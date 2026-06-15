@@ -22,7 +22,8 @@ const TYPE_COLORS: Record<string, string> = {
   review: 'bg-yellow-600',
   bugfix: 'bg-green-600',
   research: 'bg-cyan-600',
-  chore: 'bg-gray-600'
+  chore: 'bg-gray-600',
+  orchestrate: 'bg-orange-600'
 }
 
 const ALL_LAUNCH_MODES: LaunchMode[] = ['normal', 'auto', 'bypass', 'plan']
@@ -168,7 +169,7 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
 
   const depTask = task.depends_on ? tasks.find((t) => t.id === task.depends_on) : null
   const depBlocked = depTask ? depTask.status !== 'done' : false
-  const paneBlocked = task.type !== 'chore' && !hasFreePane
+  const paneBlocked = task.type !== 'chore' && task.type !== 'orchestrate' && !hasFreePane
   const effectiveDefaultMode: LaunchMode = task.type === 'research' ? 'plan' : defaultLaunchMode
 
   const handleStart = async (launchMode?: LaunchMode) => {
@@ -351,6 +352,11 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
             {task.type === 'chore' && 'directory' in task && (
               <div className="text-xs text-gray-400">
                 Dir: <span className="font-mono text-gray-300">{task.directory}</span>
+              </div>
+            )}
+            {task.type === 'orchestrate' && (
+              <div className="text-xs text-gray-400">
+                Orchestrator: <span className="font-mono text-orange-400">MCP で自律実行中</span>
               </div>
             )}
 

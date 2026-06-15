@@ -90,6 +90,23 @@ function TicketIdChecker({ configured, inputClass }: { configured: boolean; inpu
 
 const TASK_TYPES = ['feat', 'design', 'review', 'bugfix', 'research', 'chore'] as const
 
+const DEFAULT_ORCHESTRATE_PROMPT = `あなたはタスクオーケストレーターです。以下のMCPツールを使って、ミッションを達成するためのサブタスクを自律的に管理・実行してください。
+
+## 利用可能なMCPツール
+- list_repos: 利用可能なリポジトリとペインの一覧を取得
+- list_tasks: 現在のタスク一覧を取得（status: will_do / doing / done）
+- create_task: 新しいタスクを作成
+- start_task: タスクを起動（doing 状態にして Claude を起動）
+- update_task: タスクのステータス・内容を更新
+- delete_task: タスクを削除
+
+## 進め方
+1. ミッションをサブタスクに分解する
+2. create_task で各サブタスクを作成する（repoId は list_repos で確認）
+3. start_task でタスクを起動する
+4. list_tasks で進捗を確認し、done になったら次のタスクを起動する
+5. 全タスクが完了したらミッション達成を報告する`
+
 type DeleteTarget =
   | { kind: 'repo'; repoIndex: number }
   | { kind: 'pane'; repoIndex: number; paneIndex: number }
@@ -807,6 +824,35 @@ export default function SettingsPage() {
               )
             })}
           </div>
+        </section>
+
+        {/* Orchestrate システムプロンプト */}
+        <section>
+          <h2 className="text-sm font-semibold text-gray-300 mb-2">Orchestrate システムプロンプト</h2>
+          <p className="text-xs text-gray-500 mb-3">
+            orchestrate タスク起動時に先頭に付与されるプロンプト。MCPツールの使い方や進め方を記述します。
+            <br />
+            空欄の場合はデフォルトのシステムプロンプトが使われます。
+          </p>
+          <div className="flex justify-between items-center mb-1">
+            <span className="text-xs text-gray-400">カスタムシステムプロンプト</span>
+            <button
+              type="button"
+              onClick={() => setSettings((prev) => ({ ...prev, orchestrateSystemPrompt: '' }))}
+              className="text-xs text-gray-500 hover:text-gray-300"
+            >
+              デフォルトに戻す
+            </button>
+          </div>
+          <textarea
+            value={settings.orchestrateSystemPrompt ?? ''}
+            onChange={(e) =>
+              setSettings((prev) => ({ ...prev, orchestrateSystemPrompt: e.target.value }))
+            }
+            placeholder={DEFAULT_ORCHESTRATE_PROMPT}
+            rows={10}
+            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 resize-y font-mono"
+          />
         </section>
 
         {/* プラグイン管理 */}

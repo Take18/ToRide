@@ -13,7 +13,8 @@ export class McpServerService {
     taskService: TaskService,
     devServerService: DevServerService,
     getSettings: () => AppSettings,
-    notifyTasksUpdated: () => void = () => {}
+    notifyTasksUpdated: () => void = () => {},
+    startTask?: (taskId: string) => Promise<void>
   ) {
     const createServer = (): Server => {
       const server = new Server(
@@ -31,7 +32,7 @@ export class McpServerService {
               properties: {
                 type: {
                   type: 'string',
-                  enum: ['feat', 'bugfix', 'review', 'research', 'design', 'chore'],
+                  enum: ['feat', 'bugfix', 'review', 'research', 'design', 'chore', 'orchestrate'],
                   description: 'タスクのタイプ',
                 },
                 title: { type: 'string', description: 'タスクのタイトル' },
@@ -88,6 +89,17 @@ export class McpServerService {
           {
             name: 'delete_task',
             description: 'タスクを削除する',
+            inputSchema: {
+              type: 'object' as const,
+              properties: {
+                id: { type: 'string', description: 'タスクID' },
+              },
+              required: ['id'],
+            },
+          },
+          {
+            name: 'start_task',
+            description: 'タスクを起動する（doing 状態にして Claude を起動）。空きペインがない場合はエラーになる',
             inputSchema: {
               type: 'object' as const,
               properties: {
@@ -179,6 +191,16 @@ export class McpServerService {
               taskService.delete(id)
               notifyTasksUpdated()
               return { content: [{ type: 'text' as const, text: `deleted: ${id}` }] }
+            }
+            case 'start_task': {
+              const { id } = args as { id: string }
+              if (!startTask) {
+                throw new Error('start_task is not available')
+              }
+              await startTask(id)
+              notifyTasksUpdated()
+              const task = taskService.list().find((t) => t.id === id)
+              return { content: [{ type: 'text' as const, text: JSON.stringify(task, null, 2) }] }
             }
             case 'list_dev_servers': {
               const statuses = devServerService.status()
