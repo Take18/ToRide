@@ -4,7 +4,7 @@ import type { DevServerConfig, PaneConfig, DevServerStatus } from '../../../src/
 import { expandPath } from '../utils/path'
 
 export type DevServerChangeCallback = (statuses: DevServerStatus[]) => void
-export type AbnormalExitCallback = (label: string) => void
+export type AbnormalExitCallback = (info: { repoId: string; paneId: string; label: string }) => void
 
 export class DevServerService {
   private processes: Map<string, ChildProcess> = new Map()
@@ -82,7 +82,10 @@ export class DevServerService {
       this.processes.delete(k)
       this.notifyChange()
       if (!intentional && code !== 0) {
-        this.abnormalExitCallback?.(serverConfig.label)
+        const cfg = this.configs.get(k)
+        if (cfg) {
+          this.abnormalExitCallback?.({ repoId: cfg.repoId, paneId: cfg.paneConfig.id, label: serverConfig.label })
+        }
       }
     })
 

@@ -150,6 +150,12 @@ export type IpcChannels = {
   'mcp:uninstall': [void, { success: boolean; error?: string }]
 }
 
+// 通知クリック時のナビゲーション先
+export type NavigationPayload =
+  | { type: 'task'; taskId: string }
+  | { type: 'pr-detected'; taskId: string }
+  | { type: 'devserver'; repoId: string; paneId: string; label: string }
+
 // window.api の型定義（preload で expose するもの）
 export type WindowApi = {
   tasks: {
@@ -228,5 +234,8 @@ export type WindowApi = {
   }
   system: {
     onResume: (callback: () => void) => () => void
+  }
+  navigation: {
+    onNavigateTo: (callback: (payload: NavigationPayload) => void) => () => void
   }
 }

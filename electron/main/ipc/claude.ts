@@ -161,6 +161,12 @@ export function createStartTaskFn(deps: StartTaskDeps): (taskId: string) => Prom
             taskService.update(taskId, { status: 'done', completedAt: new Date().toISOString() })
             getWindow()?.webContents.send('tasks:updated')
           })
+          notification.on('click', () => {
+            const win = getWindow()
+            win?.show()
+            win?.focus()
+            win?.webContents.send('navigation:goto', { type: 'task', taskId })
+          })
           notification.show()
         })
       }
