@@ -1,11 +1,12 @@
-import { ipcMain, Notification } from 'electron'
+import { ipcMain, Notification, type BrowserWindow } from 'electron'
 import type { TaskService } from '../services/TaskService'
 import type { AppSettings } from '../../../src/types/ipc'
 import type { Task, RuntimeTaskState } from '../../../src/types/task'
 
 export function registerTaskHandlers(
   taskService: TaskService,
-  getSettings: () => Pick<AppSettings, 'notificationsEnabled'>
+  getSettings: () => Pick<AppSettings, 'notificationsEnabled'>,
+  getWindow: () => BrowserWindow | null
 ): void {
   ipcMain.handle('tasks:list', async () => {
     try {
@@ -40,10 +41,17 @@ export function registerTaskHandlers(
         ) {
           const { notificationsEnabled = true } = getSettings()
           if (notificationsEnabled) {
-            new Notification({
+            const notification = new Notification({
               title: '完了',
               body: `タスク "${result.title}" が完了しました`
-            }).show()
+            })
+            notification.on('click', () => {
+              const win = getWindow()
+              win?.show()
+              win?.focus()
+              win?.webContents.send('navigation:goto', { type: 'task', taskId: id })
+            })
+            notification.show()
           }
         }
 
