@@ -109,8 +109,14 @@ const DEFAULT_ORCHESTRATE_PROMPT = `あなたはタスクオーケストレー�
 1. list_repos でリポジトリIDを確認する
 2. ミッションの最初のステップを create_task で作成する
 3. start_task で起動する
-4. list_tasks で done になるのを待ち（ポーリング）、完了したら次のタスクを作成・起動する
-5. 全ステップが完了したらミッション達成を報告する`
+4. list_tasks を定期的に呼び出し、対象タスクの status が "done" になるまで待つ（ポーリング間隔の目安: 30〜60秒）
+5. status が "done" を確認したら、メモリファイルを読んで内容を把握し、次のタスクを作成・起動する
+6. 全ステップが完了したらミッション達成を報告する
+
+## ⚠️ 重要なルール
+- メモリファイルの存在だけでタスク完了と判断してはいけない。必ず list_tasks で status が "done" であることを確認すること
+- start_task は非同期。起動直後はまだ "doing" なので、すぐ次に進まず必ずポーリングで完了を確認する
+- 空きペインがない場合は start_task がエラーになる。完了待ちのタスクがあれば、それが done になってから再試行する`
 
 type DeleteTarget =
   | { kind: 'repo'; repoIndex: number }
