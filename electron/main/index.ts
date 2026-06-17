@@ -229,12 +229,19 @@ app.whenReady().then(() => {
   const gitService = new GitService()
   const devServerService = new DevServerService()
   devServerServiceInstance = devServerService
-  devServerService.onAbnormalExit((label) => {
+  devServerService.onAbnormalExit(({ repoId, paneId, label }) => {
     if (!getSettings().notificationsEnabled) return
-    new Notification({
+    const notification = new Notification({
       title: 'Dev Server 異常終了',
       body: `「${label}」が予期せず終了しました`
-    }).show()
+    })
+    notification.on('click', () => {
+      const win = getWindow()
+      win?.show()
+      win?.focus()
+      win?.webContents.send('navigation:goto', { type: 'devserver', repoId, paneId, label })
+    })
+    notification.show()
   })
   const gitHubService = new GitHubService()
   const localHttpServer = new LocalHttpServer()
@@ -242,7 +249,7 @@ app.whenReady().then(() => {
   const stopHookService = new StopHookService(localHttpServer)
   const contextLineService = new ContextLineService(localHttpServer)
   const mcpHookService = new McpHookService()
-  const claudeService = new ClaudeService(terminalService, getSettings, contextLineService)
+  const claudeService = new ClaudeService(terminalService, getSettings, contextLineService, getWindow)
   const startTaskFn = createStartTaskFn({
     claudeService,
     taskService,
@@ -261,7 +268,7 @@ app.whenReady().then(() => {
   })
 
   // Register IPC handlers
-  registerTaskHandlers(taskService, getSettings)
+  registerTaskHandlers(taskService, getSettings, getWindow)
   registerTerminalHandlers(terminalService, getWindow, stopHookService)
   registerGitHandlers(gitService)
   registerClaudeHandlers(

@@ -6,7 +6,8 @@ import type {
   DevServerStatus,
   TerminalDataEvent,
   ContextInfo,
-  LaunchMode
+  LaunchMode,
+  NavigationPayload
 } from '../../src/types/ipc'
 
 const api = {
@@ -154,6 +155,14 @@ const api = {
       const listener = (): void => callback()
       ipcRenderer.on('system:resume', listener)
       return () => ipcRenderer.removeListener('system:resume', listener)
+    }
+  },
+
+  navigation: {
+    onNavigateTo: (callback: (payload: NavigationPayload) => void): (() => void) => {
+      const listener = (_: IpcRendererEvent, payload: NavigationPayload): void => callback(payload)
+      ipcRenderer.on('navigation:goto', listener)
+      return () => ipcRenderer.removeListener('navigation:goto', listener)
     }
   }
 }

@@ -64,12 +64,13 @@ export async function syncReviewPRs(
   )
 
   let created = 0
+  const createdTaskIds: string[] = []
   for (const pr of prs) {
     if (existingUrls.has(pr.html_url)) continue
 
     const repoId = repoFullNameMap.get(pr.repositoryFullName.toLowerCase())
 
-    taskService.create({
+    const newTask = taskService.create({
       type: 'review',
       status: 'will_do',
       title: `[${pr.repositoryName}] #${pr.number} ${pr.title}`,
@@ -78,6 +79,7 @@ export async function syncReviewPRs(
       url: pr.html_url,
       prStatus: pr.state as ReviewTask['prStatus']
     } as Omit<ReviewTask, 'id' | 'created_at'>)
+    createdTaskIds.push(newTask.id)
     created++
   }
 
@@ -107,10 +109,19 @@ export async function syncReviewPRs(
   if (created > 0) {
     const { notificationsEnabled = true } = settings
     if (notificationsEnabled) {
-      new Notification({
+      const notification = new Notification({
         title: 'レビュー依頼のPRを検出',
         body: `${created} 件の新しいレビュー依頼タスクを作成しました`
-      }).show()
+      })
+      if (createdTaskIds.length > 0) {
+        notification.on('click', () => {
+          const win = getWindow()
+          win?.show()
+          win?.focus()
+          win?.webContents.send('navigation:goto', { type: 'pr-detected', taskId: createdTaskIds[0] })
+        })
+      }
+      notification.show()
     }
   }
 

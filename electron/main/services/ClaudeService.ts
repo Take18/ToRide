@@ -1,4 +1,4 @@
-import { Notification } from 'electron'
+import { Notification, type BrowserWindow } from 'electron'
 import type { TerminalService } from './TerminalService'
 import type { ContextLineService } from './ContextLineService'
 import type { AppSettings, ContextInfo, LaunchMode } from '../../../src/types/ipc'
@@ -8,6 +8,7 @@ export type ContextUpdateCallback = (info: ContextInfo) => void
 export class ClaudeService {
   private terminalService: TerminalService
   private getSettings: () => Pick<AppSettings, 'notificationsEnabled'>
+  private getWindow?: () => BrowserWindow | null
   private contextCallbacks: Set<ContextUpdateCallback> = new Set()
   private notifiedThresholds: Map<string, Set<number>> = new Map()
   // 正規表現パス用: デルタ値 (↓ 8.6k tokens) の累積に使用
@@ -19,10 +20,12 @@ export class ClaudeService {
   constructor(
     terminalService: TerminalService,
     getSettings: () => Pick<AppSettings, 'notificationsEnabled'>,
-    contextLineService?: ContextLineService
+    contextLineService?: ContextLineService,
+    getWindow?: () => BrowserWindow | null
   ) {
     this.terminalService = terminalService
     this.getSettings = getSettings
+    this.getWindow = getWindow
     contextLineService?.onContextUpdate((info) => {
       this.fireContextUpdate(info)
     })
@@ -169,16 +172,30 @@ export class ClaudeService {
 
     if (ratio >= 0.9 && !thresholds.has(90)) {
       thresholds.add(90)
-      new Notification({
+      const n90 = new Notification({
         title: 'コンテキスト警告',
         body: `タスクのコンテキスト使用量が90%を超えました (${info.used.toLocaleString()} / ${info.limit.toLocaleString()})`
-      }).show()
+      })
+      n90.on('click', () => {
+        const win = this.getWindow?.()
+        win?.show()
+        win?.focus()
+        win?.webContents.send('navigation:goto', { type: 'task', taskId: info.taskId })
+      })
+      n90.show()
     } else if (ratio >= 0.8 && !thresholds.has(80)) {
       thresholds.add(80)
-      new Notification({
+      const n80 = new Notification({
         title: 'コンテキスト注意',
         body: `タスクのコンテキスト使用量が80%を超えました (${info.used.toLocaleString()} / ${info.limit.toLocaleString()})`
-      }).show()
+      })
+      n80.on('click', () => {
+        const win = this.getWindow?.()
+        win?.show()
+        win?.focus()
+        win?.webContents.send('navigation:goto', { type: 'task', taskId: info.taskId })
+      })
+      n80.show()
     }
   }
 }
