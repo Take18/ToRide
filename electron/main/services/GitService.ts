@@ -72,6 +72,18 @@ export class GitService {
     }
   }
 
+  async getRemoteFullName(workdir: string): Promise<string | null> {
+    try {
+      const git = simpleGit(workdir)
+      const remoteUrl = await git.remote(['get-url', 'origin'])
+      if (!remoteUrl) return null
+      const match = remoteUrl.trim().match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/)
+      return match ? match[1] : null
+    } catch {
+      return null
+    }
+  }
+
   async branches(workdir: string): Promise<string[]> {
     try {
       const git = simpleGit(workdir)
