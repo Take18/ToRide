@@ -160,7 +160,7 @@ export class McpServerService {
                 pane?: string
                 [key: string]: unknown
               }
-              if (type !== 'chore' && !rest.repoId) {
+              if (type !== 'chore' && type !== 'orchestrate' && !rest.repoId) {
                 throw new Error('repoId is required for non-chore tasks. Use list_repos to get valid repo IDs.')
               }
               const task = taskService.create({
