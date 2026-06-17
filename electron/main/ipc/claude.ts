@@ -36,6 +36,22 @@ const DEFAULT_ORCHESTRATE_SYSTEM_PROMPT = `あなたはタスクオーケスト�
 - start_task は非同期。起動後は list_tasks でステータスを確認してから次へ進む
 - 空きペインがない場合は start_task がエラーになる。その場合は待ってからリトライする`
 
+function buildOrchestratePrompt(taskId: string, systemPrompt: string, mission?: string): string {
+  const memoryDir = `${homedir()}/.toride/memory/${taskId}`
+  const memorySection = [
+    '',
+    '',
+    '## 作業メモリディレクトリ',
+    `サブタスク間で情報を引き継ぐために以下のディレクトリを使ってください（\`mkdir -p\` で自動作成）:`,
+    `\`${memoryDir}/\``,
+    `- **計画・進捗**: \`${memoryDir}/plan.md\` に作成したタスクIDや進捗状況を記録する`,
+    `- **タスク完了後**: 各サブタスクの prompt に「完了後に \`${memoryDir}/[タスクID]_result.md\` へ実施内容・成果物・次タスクへの引き継ぎ事項を保存すること」を含める`,
+    `- **次タスク起動前**: 前タスクの result ファイルを読んで内容を確認し、引き継ぎ情報を次のプロンプトに含める`,
+  ].join('\n')
+  const fullPrompt = systemPrompt + memorySection
+  return mission ? `${fullPrompt}\n\n---\n\nミッション:\n${mission}` : fullPrompt
+}
+
 function resolveLaunchMode(override: LaunchMode | undefined, isResearch: boolean, settings: AppSettings): LaunchMode {
   if (override) return override
   if (isResearch) return 'plan'
@@ -115,8 +131,7 @@ export function createStartTaskFn(deps: StartTaskDeps): (taskId: string) => Prom
       let rawPrompt: string | undefined
       if (task.type === 'orchestrate') {
         const systemPrompt = settings.orchestrateSystemPrompt ?? DEFAULT_ORCHESTRATE_SYSTEM_PROMPT
-        const mission = task.prompt
-        rawPrompt = mission ? `${systemPrompt}\n\n---\n\n${mission}` : systemPrompt
+        rawPrompt = buildOrchestratePrompt(taskId, systemPrompt, task.prompt)
       } else {
         rawPrompt = task.prompt || settings.promptTemplates?.[task.type]
       }
@@ -241,10 +256,9 @@ export function registerClaudeHandlers(
           // Start Claude
           let rawPrompt: string | undefined
           if (task.type === 'orchestrate') {
-            // orchestrate: システムプロンプト + ミッション説明を結合
+            // orchestrate: システムプロンプト + メモリディレクトリ + ミッション説明を結合
             const systemPrompt = settings.orchestrateSystemPrompt ?? DEFAULT_ORCHESTRATE_SYSTEM_PROMPT
-            const mission = task.prompt
-            rawPrompt = mission ? `${systemPrompt}\n\n---\n\n${mission}` : systemPrompt
+            rawPrompt = buildOrchestratePrompt(taskId, systemPrompt, task.prompt)
           } else {
             rawPrompt = prompt || task.prompt || settings.promptTemplates?.[task.type]
           }
