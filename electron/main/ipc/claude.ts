@@ -69,7 +69,7 @@ export function createStartTaskFn(deps: StartTaskDeps): (taskId: string) => Prom
 
     if ((task.type === 'chore' && 'directory' in task) || task.type === 'orchestrate') {
       const dir = 'directory' in task ? task.directory : undefined
-      resolvedWorkdir = dir ? expandPath(dir) : homedir()
+      resolvedWorkdir = dir ? expandPath(dir) : expandPath(settings.repos[0]?.panes[0]?.path ?? homedir())
     } else {
       const repoId = 'repoId' in task ? task.repoId : undefined
       const repo = repoId ? settings.repos.find((r) => r.id === repoId) : settings.repos[0]
@@ -183,7 +183,7 @@ export function registerClaudeHandlers(
         if ((task.type === 'chore' && 'directory' in task) || task.type === 'orchestrate') {
           // chore / orchestrate は directory を直接使用（pane不要）
           const dir = 'directory' in task ? task.directory : undefined
-          resolvedWorkdir = dir ? expandPath(dir) : homedir()
+          resolvedWorkdir = dir ? expandPath(dir) : expandPath(settings.repos[0]?.panes[0]?.path ?? homedir())
         } else {
           // non-chore: タスクのリポジトリ内の空きペインを自動割り当て
           const repoId = 'repoId' in task ? task.repoId : undefined
