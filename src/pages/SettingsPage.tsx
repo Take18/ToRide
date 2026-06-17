@@ -90,6 +90,34 @@ function TicketIdChecker({ configured, inputClass }: { configured: boolean; inpu
 
 const TASK_TYPES = ['feat', 'design', 'review', 'bugfix', 'research', 'chore'] as const
 
+const DEFAULT_ORCHESTRATE_PROMPT = `あなたはタスクオーケストレーターです。ToRide MCPツールを使ってミッションを自律的に実行してください。
+
+## 基本方針
+- サブタスクは事前に全部作るのではなく、状況に応じて動的に作成・起動する
+- 1つのタスクが完了したら次を作成・起動する（逐次進行）
+- 並列実行が必要なら複数タスクを同時起動してもよい
+
+## 利用可能なMCPツール
+- list_repos: リポジトリ一覧を取得（create_task の repoId に使う）
+- list_tasks: タスク一覧を取得してステータスを確認
+- create_task: タスクを新規作成（type: feat/bugfix/review/research/design/chore）
+- start_task: タスクを起動（Claude が自動実行を開始する）
+- update_task: タスクのステータス・内容を更新
+- delete_task: タスクを削除
+
+## 進め方
+1. list_repos でリポジトリIDを確認する
+2. ミッションの最初のステップを create_task で作成する
+3. start_task で起動する
+4. list_tasks を定期的に呼び出し、対象タスクの status が "done" になるまで待つ（ポーリング間隔の目安: 30〜60秒）
+5. status が "done" を確認したら、メモリファイルを読んで内容を把握し、次のタスクを作成・起動する
+6. 全ステップが完了したらミッション達成を報告する
+
+## ⚠️ 重要なルール
+- メモリファイルの存在だけでタスク完了と判断してはいけない。必ず list_tasks で status が "done" であることを確認すること
+- start_task は非同期。起動直後はまだ "doing" なので、すぐ次に進まず必ずポーリングで完了を確認する
+- 空きペインがない場合は start_task がエラーになる。完了待ちのタスクがあれば、それが done になってから再試行する`
+
 type DeleteTarget =
   | { kind: 'repo'; repoIndex: number }
   | { kind: 'pane'; repoIndex: number; paneIndex: number }
@@ -807,6 +835,35 @@ export default function SettingsPage() {
               )
             })}
           </div>
+        </section>
+
+        {/* Orchestrate システムプロンプト */}
+        <section>
+          <h2 className="text-sm font-semibold text-gray-300 mb-2">Orchestrate システムプロンプト</h2>
+          <p className="text-xs text-gray-500 mb-3">
+            orchestrate タスク起動時に先頭に付与されるプロンプト。MCPツールの使い方や進め方を記述します。
+            <br />
+            空欄の場合はデフォルトのシステムプロンプトが使われます。
+          </p>
+          <div className="flex justify-between items-center mb-1">
+            <span className="text-xs text-gray-400">カスタムシステムプロンプト</span>
+            <button
+              type="button"
+              onClick={() => setSettings((prev) => ({ ...prev, orchestrateSystemPrompt: '' }))}
+              className="text-xs text-gray-500 hover:text-gray-300"
+            >
+              デフォルトに戻す
+            </button>
+          </div>
+          <textarea
+            value={settings.orchestrateSystemPrompt ?? ''}
+            onChange={(e) =>
+              setSettings((prev) => ({ ...prev, orchestrateSystemPrompt: e.target.value }))
+            }
+            placeholder={DEFAULT_ORCHESTRATE_PROMPT}
+            rows={10}
+            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 resize-y font-mono"
+          />
         </section>
 
         {/* プラグイン管理 */}

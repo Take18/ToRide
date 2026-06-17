@@ -40,6 +40,7 @@ export type AppSettings = {
   pluginSettings?: Record<string, Record<string, string>>  // チケットプラグイン設定（暗号化フィールドはsafeStorage管理）
   enabledPlugins?: string[]  // 有効なプラグインIDの一覧
   extraPaths?: string[]  // git hooks等の子プロセスに追加するPATHエントリ
+  orchestrateSystemPrompt?: string  // orchestrateタスク起動時に先頭に付与するシステムプロンプト
 }
 
 // Git status

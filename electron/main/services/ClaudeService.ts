@@ -44,11 +44,33 @@ export class ClaudeService {
     this.terminalService.write(taskId, claudeCmd)
 
     if (!resumeSessionId && prompt) {
-      setTimeout(() => {
-        if (this.terminalService.hasSession(taskId)) {
-          this.terminalService.write(taskId, prompt + '\n')
+      let injected = false
+
+      const tryInject = () => {
+        if (injected || !this.terminalService.hasSession(taskId)) return
+        injected = true
+        unsubReady()
+        // テキストと Enter を分けて送ることで TUI がテキストを input field に
+        // レンダリングした後に \r (Enter) が届くようにする
+        this.terminalService.write(taskId, prompt)
+        setTimeout(() => {
+          if (this.terminalService.hasSession(taskId)) {
+            this.terminalService.write(taskId, '\r')
+          }
+        }, 200)
+      }
+
+      // Claude Code が TUI をレンダリングして入力待ちになると bracketed paste mode を有効化する
+      // \x1b[?2004h を検知したタイミングが inject の最適タイミング
+      const unsubReady = this.terminalService.onData(taskId, (data: string) => {
+        if (injected) return
+        if (data.includes('\x1b[?2004h')) {
+          setTimeout(tryInject, 500)
         }
-      }, 2000)
+      })
+
+      // フォールバック: 12秒以内に検知できなければ強制 inject
+      setTimeout(tryInject, 12000)
     }
 
     this.notifiedThresholds.set(taskId, new Set())

@@ -1,7 +1,7 @@
 // タスク型定義（テンプレートリテラル型を除去したシンプルな型）
 
 export type TaskStatus = 'will_do' | 'doing' | 'done'
-export type TaskType = 'feat' | 'design' | 'review' | 'bugfix' | 'research' | 'chore'
+export type TaskType = 'feat' | 'design' | 'review' | 'bugfix' | 'research' | 'chore' | 'orchestrate'
 
 export type BaseTask = {
   id: string
@@ -52,7 +52,12 @@ export type ChoreTask = {
   directory: string
 } & BaseTask
 
-export type Task = DesignTask | FeatureTask | ReviewTask | BugfixTask | ResearchTask | ChoreTask
+export type OrchestrateTask = {
+  type: 'orchestrate'
+  directory?: string  // optional workdir (defaults to home dir)
+} & BaseTask
+
+export type Task = DesignTask | FeatureTask | ReviewTask | BugfixTask | ResearchTask | ChoreTask | OrchestrateTask
 
 // ユニオン型に対してOmitを分配適用するユーティリティ型
 export type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> : never

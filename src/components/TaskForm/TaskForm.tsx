@@ -180,6 +180,9 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
         case 'chore':
           await createTask({ ...base, type: 'chore', directory: form.directory, prompt: form.prompt || undefined })
           break
+        case 'orchestrate':
+          await createTask({ ...base, type: 'orchestrate', repoId: form.repoId || undefined, directory: form.directory || undefined, prompt: form.prompt || undefined })
+          break
       }
     }
     onClose()
@@ -260,11 +263,12 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
                   <option value="bugfix">bugfix</option>
                   <option value="research">research</option>
                   <option value="chore">chore</option>
+                  <option value="orchestrate">orchestrate</option>
                 </select>
               )}
             </div>
 
-            {/* Repository (chore以外) */}
+            {/* Repository (chore 以外 / orchestrate はリポジトリのみ選択) */}
             {form.type !== 'chore' && repos.length > 0 && (
               <div>
                 <label className={labelClass}>リポジトリ{req}</label>
@@ -348,34 +352,50 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
               </div>
             )}
 
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <label className={labelClass.replace(' mb-1', '')}>
-                  Prompt{form.type === 'research' && req}
-                </label>
-                <span className="text-xs text-gray-500 flex flex-wrap gap-1">
-                  <span className="font-mono text-blue-400">{'{title}'}</span>
-                  {({
-                    feat: ['{branch}', '{ticket}', '{prompt}'],
-                    design: ['{output}'],
-                    review: ['{pr-url}'],
-                    bugfix: ['{branch}', '{ticket}'],
-                    research: ['{branch}', '{prompt}'],
-                    chore: ['{directory}'],
-                  } as Record<string, string[]>)[form.type]?.map((v) => (
-                    <span key={v} className="font-mono text-blue-400">{v}</span>
-                  ))}
-                </span>
+            {form.type === 'orchestrate' ? (
+              <div>
+                <label className={labelClass}>ミッション説明</label>
+                <p className="text-xs text-gray-500 mb-1">
+                  何を達成したいかを記述してください。オーケストレーターがサブタスクに分解して自律実行します。
+                </p>
+                <textarea
+                  value={form.prompt}
+                  onChange={(e) => set('prompt', e.target.value)}
+                  placeholder="例: Aコンポーネントの実装後にBをレビューして、両方完了したらCをリリースする"
+                  rows={4}
+                  className={inputClass}
+                />
               </div>
-              <textarea
-                value={form.prompt}
-                onChange={(e) => set('prompt', e.target.value)}
-                placeholder="Claude Codeへの指示..."
-                rows={3}
-                className={inputClass}
-                required={form.type === 'research'}
-              />
-            </div>
+            ) : (
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <label className={labelClass.replace(' mb-1', '')}>
+                    Prompt{form.type === 'research' && req}
+                  </label>
+                  <span className="text-xs text-gray-500 flex flex-wrap gap-1">
+                    <span className="font-mono text-blue-400">{'{title}'}</span>
+                    {({
+                      feat: ['{branch}', '{ticket}', '{prompt}'],
+                      design: ['{output}'],
+                      review: ['{pr-url}'],
+                      bugfix: ['{branch}', '{ticket}'],
+                      research: ['{branch}', '{prompt}'],
+                      chore: ['{directory}'],
+                    } as Record<string, string[]>)[form.type]?.map((v) => (
+                      <span key={v} className="font-mono text-blue-400">{v}</span>
+                    ))}
+                  </span>
+                </div>
+                <textarea
+                  value={form.prompt}
+                  onChange={(e) => set('prompt', e.target.value)}
+                  placeholder="Claude Codeへの指示..."
+                  rows={3}
+                  className={inputClass}
+                  required={form.type === 'research'}
+                />
+              </div>
+            )}
 
             {form.type === 'design' && (
               <div>

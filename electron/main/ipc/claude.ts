@@ -1,5 +1,6 @@
 import { ipcMain, Notification, type BrowserWindow } from 'electron'
 import { randomUUID } from 'crypto'
+import { homedir } from 'os'
 import { expandPath } from '../utils/path'
 import type { ClaudeService } from '../services/ClaudeService'
 import type { TaskService } from '../services/TaskService'
@@ -8,6 +9,50 @@ import type { TerminalService } from '../services/TerminalService'
 import type { StopHookService } from '../services/StopHookService'
 import type { AppSettings, LaunchMode } from '../../../src/types/ipc'
 import type { Task } from '../../../src/types/task'
+
+const DEFAULT_ORCHESTRATE_SYSTEM_PROMPT = `あなたはタスクオーケストレーターです。ToRide MCPツールを使ってミッションを自律的に実行してください。
+
+## 基本方針
+- サブタスクは**事前に全部作るのではなく、状況に応じて動的に作成・起動**する
+- 1つのタスクが完了したら次を作成・起動する（逐次進行）
+- 並列実行が必要なら複数タスクを同時起動してもよい
+
+## 利用可能なMCPツール
+- list_repos: リポジトリ一覧を取得（create_task の repoId に使う）
+- list_tasks: タスク一覧を取得してステータスを確認
+- create_task: タスクを新規作成（type: feat/bugfix/review/research/design/chore）
+- start_task: タスクを起動（Claude が自動実行を開始する）
+- update_task: タスクのステータス・内容を更新
+- delete_task: タスクを削除
+
+## 進め方
+1. list_repos でリポジトリIDを確認する
+2. ミッションの最初のステップを create_task で作成する
+3. start_task で起動する
+4. **list_tasks を定期的に呼び出し、対象タスクの status が "done" になるまで待つ**（ポーリング間隔の目安: 30〜60秒）
+5. status が "done" を確認したら、メモリファイルを読んで内容を把握し、次のタスクを作成・起動する
+6. 全ステップが完了したらミッション達成を報告する
+
+## ⚠️ 重要なルール
+- **メモリファイルの存在だけでタスク完了と判断してはいけない**。必ず list_tasks で status が "done" であることを確認すること
+- start_task は非同期。起動直後はまだ "doing" なので、すぐ次に進まず必ずポーリングで完了を確認する
+- 空きペインがない場合は start_task がエラーになる。完了待ちのタスクがあれば、それが done になってから再試行する`
+
+function buildOrchestratePrompt(taskId: string, systemPrompt: string, mission?: string): string {
+  const memoryDir = `${homedir()}/.toride/memory/${taskId}`
+  const memorySection = [
+    '',
+    '',
+    '## 作業メモリディレクトリ',
+    `サブタスク間で情報を引き継ぐために以下のディレクトリを使ってください（\`mkdir -p\` で自動作成）:`,
+    `\`${memoryDir}/\``,
+    `- **計画・進捗**: \`${memoryDir}/plan.md\` に作成したタスクIDや進捗状況を記録する`,
+    `- **タスク完了後**: 各サブタスクの prompt に「完了後に \`${memoryDir}/[タスクID]_result.md\` へ実施内容・成果物・次タスクへの引き継ぎ事項を保存すること」を含める`,
+    `- **次タスク起動前**: 前タスクの result ファイルを読んで内容を確認し、引き継ぎ情報を次のプロンプトに含める`,
+  ].join('\n')
+  const fullPrompt = systemPrompt + memorySection
+  return mission ? `${fullPrompt}\n\n---\n\nミッション:\n${mission}` : fullPrompt
+}
 
 function resolveLaunchMode(override: LaunchMode | undefined, isResearch: boolean, settings: AppSettings): LaunchMode {
   if (override) return override
@@ -24,8 +69,122 @@ function interpolateTemplate(template: string, task: Task): string {
   if ('url' in task) vars['pr-url'] = task.url
   if ('prompt' in task && task.prompt) vars['prompt'] = task.prompt
   if ('output' in task) vars['output'] = task.output
-  if ('directory' in task) vars['directory'] = task.directory
+  if ('directory' in task && task.directory) vars['directory'] = task.directory
   return template.replace(/\{([^}]+)\}/g, (match, key: string) => vars[key] ?? match)
+}
+
+type StartTaskDeps = {
+  claudeService: ClaudeService
+  taskService: TaskService
+  gitService: GitService
+  terminalService: TerminalService
+  getWindow: () => BrowserWindow | null
+  getSettings: () => AppSettings
+  stopHookService?: StopHookService
+}
+
+export function createStartTaskFn(deps: StartTaskDeps): (taskId: string) => Promise<void> {
+  const { claudeService, taskService, gitService, terminalService, getWindow, getSettings, stopHookService } = deps
+  return async (taskId: string) => {
+    const tasks = taskService.list()
+    const task = tasks.find((t) => t.id === taskId)
+    if (!task) throw new Error(`Task not found: ${taskId}`)
+
+    const settings = getSettings()
+    let resolvedWorkdir = ''
+    let assignedPane = task.pane
+
+    if ((task.type === 'chore' && 'directory' in task) || task.type === 'orchestrate') {
+      const dir = 'directory' in task ? task.directory : undefined
+      if (dir) {
+        resolvedWorkdir = expandPath(dir)
+      } else {
+        // repoId が指定されていればそのリポジトリの1番目のペイン、なければ最初のリポジトリの1番目のペイン
+        const repoId = 'repoId' in task ? (task as { repoId?: string }).repoId : undefined
+        const repo = repoId ? settings.repos.find((r) => r.id === repoId) : settings.repos[0]
+        resolvedWorkdir = expandPath(repo?.panes[0]?.path ?? homedir())
+      }
+    } else {
+      const repoId = 'repoId' in task ? task.repoId : undefined
+      const repo = repoId ? settings.repos.find((r) => r.id === repoId) : settings.repos[0]
+      if (!repo) throw new Error('NO_REPO_ASSIGNED')
+      const occupiedPaneIds = new Set(
+        tasks
+          .filter((t) => t.id !== taskId && t.status === 'doing' && t.pane &&
+            (('repoId' in t ? (t as { repoId?: string }).repoId : undefined) ?? settings.repos[0]?.id) === repo.id)
+          .map((t) => t.pane)
+      )
+      const freePaneConfig = repo.panes.find((p) => !occupiedPaneIds.has(p.id))
+      if (!freePaneConfig) throw new Error('NO_FREE_PANE')
+      assignedPane = freePaneConfig.id
+      resolvedWorkdir = expandPath(freePaneConfig.path)
+    }
+
+    if ('branch' in task && task.branch) {
+      const baseBranch = 'baseBranch' in task ? task.baseBranch : undefined
+      await gitService.checkout(resolvedWorkdir, task.branch, baseBranch)
+    }
+
+    taskService.update(taskId, { status: 'doing', pane: assignedPane })
+
+    try {
+      getWindow()?.webContents.send('terminal:reset', taskId)
+
+      let rawPrompt: string | undefined
+      if (task.type === 'orchestrate') {
+        const systemPrompt = settings.orchestrateSystemPrompt ?? DEFAULT_ORCHESTRATE_SYSTEM_PROMPT
+        rawPrompt = buildOrchestratePrompt(taskId, systemPrompt, task.prompt)
+      } else {
+        rawPrompt = task.prompt || settings.promptTemplates?.[task.type]
+      }
+      const taskPrompt = rawPrompt ? (task.type === 'orchestrate' ? rawPrompt : interpolateTemplate(rawPrompt, task)) : undefined
+      const effectiveLaunchMode = resolveLaunchMode(undefined, task.type === 'research', settings)
+      const sessionId = randomUUID()
+      claudeService.start(taskId, resolvedWorkdir, taskPrompt, effectiveLaunchMode, undefined, undefined, sessionId)
+      taskService.update(taskId, { sessionId })
+
+      if (stopHookService) {
+        stopHookService.onTaskComplete(taskId, async () => {
+          const currentTask = taskService.list().find((t) => t.id === taskId)
+          if (!currentTask || currentTask.status === 'done') return
+          const { notificationsEnabled = true } = getSettings()
+          if (!notificationsEnabled) return
+          const notification = new Notification({
+            title: 'Claude が完了しました',
+            body: `「${currentTask.title}」`,
+            actions: [{ type: 'button', text: '承認して完了' }]
+          })
+          notification.on('action', (_, index) => {
+            if (index !== 0) return
+            const t = taskService.list().find((t) => t.id === taskId)
+            if (!t || t.status === 'done') return
+            taskService.update(taskId, { status: 'done', completedAt: new Date().toISOString() })
+            getWindow()?.webContents.send('tasks:updated')
+          })
+          notification.show()
+        })
+      }
+
+      const pid = terminalService.getPid(taskId)
+      if (pid) taskService.update(taskId, { pid, workdir: resolvedWorkdir })
+
+      terminalService.onData(taskId, (data) => {
+        const win = getWindow()
+        if (win && !win.isDestroyed()) win.webContents.send('terminal:data', { taskId, data })
+      })
+
+      claudeService.onContextUpdate((info) => {
+        if (info.taskId === taskId) {
+          taskService.update(taskId, { contextUsed: info.used, contextLimit: info.limit })
+          const win = getWindow()
+          if (win && !win.isDestroyed()) win.webContents.send('claude:context-update', info)
+        }
+      })
+    } catch (startError) {
+      taskService.update(taskId, { status: 'will_do' })
+      throw startError
+    }
+  }
 }
 
 export function registerClaudeHandlers(
@@ -54,9 +213,10 @@ export function registerClaudeHandlers(
         let resolvedWorkdir = workdir
         let assignedPane = task.pane
 
-        if (task.type === 'chore' && 'directory' in task) {
-          // chore は directory を直接使用（pane不要）
-          resolvedWorkdir = expandPath(task.directory)
+        if ((task.type === 'chore' && 'directory' in task) || task.type === 'orchestrate') {
+          // chore / orchestrate は directory を直接使用（pane不要）
+          const dir = 'directory' in task ? task.directory : undefined
+          resolvedWorkdir = dir ? expandPath(dir) : expandPath(settings.repos[0]?.panes[0]?.path ?? homedir())
         } else {
           // non-chore: タスクのリポジトリ内の空きペインを自動割り当て
           const repoId = 'repoId' in task ? task.repoId : undefined
@@ -96,8 +256,15 @@ export function registerClaudeHandlers(
           getWindow()?.webContents.send('terminal:reset', taskId)
 
           // Start Claude
-          const rawPrompt = prompt || task.prompt || settings.promptTemplates?.[task.type]
-          const taskPrompt = rawPrompt ? interpolateTemplate(rawPrompt, task) : undefined
+          let rawPrompt: string | undefined
+          if (task.type === 'orchestrate') {
+            // orchestrate: システムプロンプト + メモリディレクトリ + ミッション説明を結合
+            const systemPrompt = settings.orchestrateSystemPrompt ?? DEFAULT_ORCHESTRATE_SYSTEM_PROMPT
+            rawPrompt = buildOrchestratePrompt(taskId, systemPrompt, task.prompt)
+          } else {
+            rawPrompt = prompt || task.prompt || settings.promptTemplates?.[task.type]
+          }
+          const taskPrompt = rawPrompt ? (task.type === 'orchestrate' ? rawPrompt : interpolateTemplate(rawPrompt, task)) : undefined
           const effectiveLaunchMode = resolveLaunchMode(launchMode, task.type === 'research', settings)
           const sessionId = randomUUID()
           claudeService.start(taskId, resolvedWorkdir, taskPrompt, effectiveLaunchMode, cols, rows, sessionId)

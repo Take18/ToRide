@@ -19,7 +19,7 @@ import { PLUGIN_CATALOG } from './plugins/catalog'
 import { registerTaskHandlers } from './ipc/tasks'
 import { registerTerminalHandlers } from './ipc/terminal'
 import { registerGitHandlers } from './ipc/git'
-import { registerClaudeHandlers } from './ipc/claude'
+import { registerClaudeHandlers, createStartTaskFn } from './ipc/claude'
 import { registerDevServerHandlers } from './ipc/devServer'
 import { registerGitHubHandlers, syncReviewPRs } from './ipc/github'
 import { registerTicketHandlers } from './ipc/ticket'
@@ -242,10 +242,19 @@ app.whenReady().then(() => {
   const stopHookService = new StopHookService(localHttpServer)
   const contextLineService = new ContextLineService(localHttpServer)
   const mcpHookService = new McpHookService()
+  const claudeService = new ClaudeService(terminalService, getSettings, contextLineService)
+  const startTaskFn = createStartTaskFn({
+    claudeService,
+    taskService,
+    gitService,
+    terminalService,
+    getWindow,
+    getSettings,
+    stopHookService,
+  })
   new McpServerService(localHttpServer, taskService, devServerService, getSettings, () => {
     getWindow()?.webContents.send('tasks:updated')
-  })
-  const claudeService = new ClaudeService(terminalService, getSettings, contextLineService)
+  }, startTaskFn)
   const initialPort = getSettings().stopHookPort ?? 39457
   localHttpServer.start(initialPort).catch((e) => {
     console.error('[LocalHttpServer] failed to start:', e)
