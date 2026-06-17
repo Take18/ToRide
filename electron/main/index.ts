@@ -289,7 +289,7 @@ app.whenReady().then(() => {
   ipcMain.handle('hooks:statusline-install', () => contextLineService.installStatusLine())
   ipcMain.handle('hooks:statusline-uninstall', () => contextLineService.uninstallStatusLine())
   registerDevServerHandlers(devServerService, getWindow, getSettings)
-  registerGitHubHandlers(gitHubService, taskService, getSettings, getWindow)
+  registerGitHubHandlers(gitHubService, gitService, taskService, getSettings, getWindow)
   registerTicketHandlers(registry, getSettings)
 
   // PR自動同期タイマー（1分ごとにチェックし、設定された間隔で同期を実行）
@@ -301,7 +301,7 @@ app.whenReady().then(() => {
     if (now - lastPrSyncAt >= intervalMs) {
       lastPrSyncAt = now
       try {
-        await syncReviewPRs(gitHubService, taskService, getSettings, getWindow)
+        await syncReviewPRs(gitHubService, gitService, taskService, getSettings, getWindow)
       } catch (err) {
         console.error('[github:sync-prs] auto-sync error:', err)
       }
