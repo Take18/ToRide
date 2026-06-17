@@ -111,13 +111,15 @@ export class McpServerService {
           {
             name: 'list_dev_servers',
             description:
-              '設定済みの開発サーバーの一覧と起動状態を取得する。start_dev_server / stop_dev_server に使う repoId / paneId / label がわかる',
+              '設定済みの開発サーバーの一覧と起動状態を取得する。各エントリに repoId / paneId / label / workdir（作業ディレクトリ）/ runningTaskId（そのペインで実行中のタスクID）/ runningTaskTitle が含まれる。' +
+              'start_dev_server を呼ぶ前に必ずこのツールを呼び出し、現在の自分のタスクIDと runningTaskId が一致するペインを選ぶこと。一致するペインが存在しない場合は workdir でカレントディレクトリと照合して選ぶこと。',
             inputSchema: { type: 'object' as const, properties: {} },
           },
           {
             name: 'start_dev_server',
             description:
-              '開発サーバーを起動する。すでに起動中の場合は再起動される。起動は非同期のため、結果は list_dev_servers で確認できる',
+              '開発サーバーを起動する。すでに起動中の場合は再起動される。起動は非同期のため、結果は list_dev_servers で確認できる。' +
+              '呼び出す前に list_dev_servers で現在のタスクが動いているペイン（runningTaskId が自分のタスクIDと一致するもの）を特定し、そのペインの repoId / paneId を使うこと。',
             inputSchema: {
               type: 'object' as const,
               properties: {
@@ -204,9 +206,13 @@ export class McpServerService {
             }
             case 'list_dev_servers': {
               const statuses = devServerService.status()
+              const doingTasks = taskService.list().filter((t) => t.status === 'doing')
               const servers = getSettings().repos.flatMap((repo) =>
-                repo.panes.flatMap((pane) =>
-                  pane.devServers.map((server) => {
+                repo.panes.flatMap((pane) => {
+                  const runningTask = doingTasks.find(
+                    (t) => t.repoId === repo.id && t.pane === pane.id
+                  )
+                  return pane.devServers.map((server) => {
                     const status = statuses.find(
                       (s) => s.repoId === repo.id && s.paneId === pane.id && s.label === server.label
                     )
@@ -214,13 +220,16 @@ export class McpServerService {
                       repoId: repo.id,
                       repoName: repo.name,
                       paneId: pane.id,
+                      workdir: pane.path,
+                      runningTaskId: runningTask?.id ?? null,
+                      runningTaskTitle: runningTask?.title ?? null,
                       label: server.label,
                       port: server.port,
                       running: status?.running ?? false,
                       pid: status?.pid,
                     }
                   })
-                )
+                })
               )
               return { content: [{ type: 'text' as const, text: JSON.stringify(servers, null, 2) }] }
             }
