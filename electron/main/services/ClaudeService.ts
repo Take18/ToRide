@@ -46,7 +46,8 @@ export class ClaudeService {
     if (!resumeSessionId && prompt) {
       setTimeout(() => {
         if (this.terminalService.hasSession(taskId)) {
-          this.terminalService.write(taskId, prompt + '\n')
+          // Claude Code TUI は raw mode で動作するため Enter は \r (CR) で送る
+          this.terminalService.write(taskId, prompt + '\r')
         }
       }, 2000)
     }

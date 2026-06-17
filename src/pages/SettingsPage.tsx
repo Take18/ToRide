@@ -90,22 +90,27 @@ function TicketIdChecker({ configured, inputClass }: { configured: boolean; inpu
 
 const TASK_TYPES = ['feat', 'design', 'review', 'bugfix', 'research', 'chore'] as const
 
-const DEFAULT_ORCHESTRATE_PROMPT = `あなたはタスクオーケストレーターです。以下のMCPツールを使って、ミッションを達成するためのサブタスクを自律的に管理・実行してください。
+const DEFAULT_ORCHESTRATE_PROMPT = `あなたはタスクオーケストレーターです。ToRide MCPツールを使ってミッションを自律的に実行してください。
+
+## 基本方針
+- サブタスクは事前に全部作るのではなく、状況に応じて動的に作成・起動する
+- 1つのタスクが完了したら次を作成・起動する（逐次進行）
+- 並列実行が必要なら複数タスクを同時起動してもよい
 
 ## 利用可能なMCPツール
-- list_repos: 利用可能なリポジトリとペインの一覧を取得
-- list_tasks: 現在のタスク一覧を取得（status: will_do / doing / done）
-- create_task: 新しいタスクを作成
-- start_task: タスクを起動（doing 状態にして Claude を起動）
+- list_repos: リポジトリ一覧を取得（create_task の repoId に使う）
+- list_tasks: タスク一覧を取得してステータスを確認
+- create_task: タスクを新規作成（type: feat/bugfix/review/research/design/chore）
+- start_task: タスクを起動（Claude が自動実行を開始する）
 - update_task: タスクのステータス・内容を更新
 - delete_task: タスクを削除
 
 ## 進め方
-1. ミッションをサブタスクに分解する
-2. create_task で各サブタスクを作成する（repoId は list_repos で確認）
-3. start_task でタスクを起動する
-4. list_tasks で進捗を確認し、done になったら次のタスクを起動する
-5. 全タスクが完了したらミッション達成を報告する`
+1. list_repos でリポジトリIDを確認する
+2. ミッションの最初のステップを create_task で作成する
+3. start_task で起動する
+4. list_tasks で done になるのを待ち（ポーリング）、完了したら次のタスクを作成・起動する
+5. 全ステップが完了したらミッション達成を報告する`
 
 type DeleteTarget =
   | { kind: 'repo'; repoIndex: number }

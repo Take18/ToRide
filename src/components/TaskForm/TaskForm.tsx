@@ -181,7 +181,7 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
           await createTask({ ...base, type: 'chore', directory: form.directory, prompt: form.prompt || undefined })
           break
         case 'orchestrate':
-          await createTask({ ...base, type: 'orchestrate', directory: form.directory || undefined, prompt: form.prompt || undefined })
+          await createTask({ ...base, type: 'orchestrate', repoId: form.repoId || undefined, directory: form.directory || undefined, prompt: form.prompt || undefined })
           break
       }
     }
@@ -268,8 +268,8 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
               )}
             </div>
 
-            {/* Repository (chore / orchestrate 以外) */}
-            {form.type !== 'chore' && form.type !== 'orchestrate' && repos.length > 0 && (
+            {/* Repository (chore 以外 / orchestrate はリポジトリのみ選択) */}
+            {form.type !== 'chore' && repos.length > 0 && (
               <div>
                 <label className={labelClass}>リポジトリ{req}</label>
                 <select
