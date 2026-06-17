@@ -3,6 +3,7 @@ import DashboardPage from './pages/DashboardPage'
 import ArchivePage from './pages/ArchivePage'
 import SettingsPage from './pages/SettingsPage'
 import BackgroundSlideshow from './components/BackgroundSlideshow/BackgroundSlideshow'
+import TerminalPanel from './components/Terminal/TerminalPanel'
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
         <Route path="/archive" element={<ArchivePage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
+      <TerminalPanel />
     </>
   )
 }

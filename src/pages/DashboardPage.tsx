@@ -4,7 +4,6 @@ import FilterBar from '../components/FilterBar/FilterBar'
 import PaneStatusSidebar from '../components/PaneStatusSidebar/PaneStatusSidebar'
 import TaskCard from '../components/TaskCard/TaskCard'
 import TaskForm from '../components/TaskForm/TaskForm'
-import TerminalPanel from '../components/Terminal/TerminalPanel'
 import { useTerminalStore } from '../stores/terminalStore'
 import type { TaskStatus, RuntimeTask } from '../types/task'
 import type { RepoConfig, LaunchMode } from '../types/ipc'
@@ -182,7 +181,6 @@ export default function DashboardPage() {
         onClose={() => { setFormOpen(false); setEditingTask(null) }}
         editTask={editingTask ?? undefined}
       />
-      <TerminalPanel />
     </div>
   )
 }
