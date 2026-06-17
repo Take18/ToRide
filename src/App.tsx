@@ -4,6 +4,7 @@ import DashboardPage from './pages/DashboardPage'
 import ArchivePage from './pages/ArchivePage'
 import SettingsPage from './pages/SettingsPage'
 import BackgroundSlideshow from './components/BackgroundSlideshow/BackgroundSlideshow'
+import TerminalPanel from './components/Terminal/TerminalPanel'
 import { useTerminalStore } from './stores/terminalStore'
 
 export default function App() {
@@ -37,6 +38,7 @@ export default function App() {
         <Route path="/archive" element={<ArchivePage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
+      <TerminalPanel />
     </>
   )
 }
