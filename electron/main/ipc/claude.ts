@@ -83,9 +83,9 @@ type StartTaskDeps = {
   stopHookService?: StopHookService
 }
 
-export function createStartTaskFn(deps: StartTaskDeps): (taskId: string) => Promise<void> {
+export function createStartTaskFn(deps: StartTaskDeps): (taskId: string, launchMode?: LaunchMode) => Promise<void> {
   const { claudeService, taskService, gitService, terminalService, getWindow, getSettings, stopHookService } = deps
-  return async (taskId: string) => {
+  return async (taskId: string, launchMode?: LaunchMode) => {
     const tasks = taskService.list()
     const task = tasks.find((t) => t.id === taskId)
     if (!task) throw new Error(`Task not found: ${taskId}`)
@@ -138,7 +138,7 @@ export function createStartTaskFn(deps: StartTaskDeps): (taskId: string) => Prom
         rawPrompt = task.prompt || settings.promptTemplates?.[task.type]
       }
       const taskPrompt = rawPrompt ? (task.type === 'orchestrate' ? rawPrompt : interpolateTemplate(rawPrompt, task)) : undefined
-      const effectiveLaunchMode = resolveLaunchMode(undefined, task.type === 'research', settings)
+      const effectiveLaunchMode = resolveLaunchMode(launchMode, task.type === 'research', settings)
       const sessionId = randomUUID()
       claudeService.start(taskId, resolvedWorkdir, taskPrompt, effectiveLaunchMode, undefined, undefined, sessionId)
       taskService.update(taskId, { sessionId })

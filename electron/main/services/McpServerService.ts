@@ -5,7 +5,7 @@ import type { LocalHttpServer } from './LocalHttpServer.js'
 import type { TaskService } from './TaskService.js'
 import type { DevServerService } from './DevServerService.js'
 import type { Task } from '../../../src/types/task.js'
-import type { AppSettings } from '../../../src/types/ipc.js'
+import type { AppSettings, LaunchMode } from '../../../src/types/ipc.js'
 
 export class McpServerService {
   constructor(
@@ -14,7 +14,7 @@ export class McpServerService {
     devServerService: DevServerService,
     getSettings: () => AppSettings,
     notifyTasksUpdated: () => void = () => {},
-    startTask?: (taskId: string) => Promise<void>
+    startTask?: (taskId: string, launchMode?: LaunchMode) => Promise<void>
   ) {
     const createServer = (): Server => {
       const server = new Server(
@@ -104,6 +104,11 @@ export class McpServerService {
               type: 'object' as const,
               properties: {
                 id: { type: 'string', description: 'タスクID' },
+                launchMode: {
+                  type: 'string',
+                  enum: ['normal', 'auto', 'bypass', 'plan'],
+                  description: 'Claude の起動モード。省略時は設定値に従う。bypass=--dangerously-skip-permissions, auto=--permission-mode auto, plan=--permission-mode plan, normal=デフォルト',
+                },
               },
               required: ['id'],
             },
@@ -195,11 +200,11 @@ export class McpServerService {
               return { content: [{ type: 'text' as const, text: `deleted: ${id}` }] }
             }
             case 'start_task': {
-              const { id } = args as { id: string }
+              const { id, launchMode } = args as { id: string; launchMode?: LaunchMode }
               if (!startTask) {
                 throw new Error('start_task is not available')
               }
-              await startTask(id)
+              await startTask(id, launchMode)
               notifyTasksUpdated()
               const task = taskService.list().find((t) => t.id === id)
               return { content: [{ type: 'text' as const, text: JSON.stringify(task, null, 2) }] }
