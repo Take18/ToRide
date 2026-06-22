@@ -40,11 +40,19 @@ export default function FilterBar({ onNewTask, onSyncPRs, prSyncing }: Props) {
           placeholder="検索..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full px-3 py-1.5 pl-8 bg-gray-800 border border-gray-600 rounded text-sm text-white placeholder-gray-400 focus:outline-none focus:border-blue-500"
+          className={`w-full px-3 py-1.5 pl-8 bg-gray-800 border border-gray-600 rounded text-sm text-white placeholder-gray-400 focus:outline-none focus:border-blue-500 ${searchQuery ? 'pr-7' : ''}`}
         />
         <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
-          {'\uD83D\uDD0D'}
+          {'🔍'}
         </span>
+        {searchQuery && (
+          <button
+            onClick={() => setSearchQuery('')}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white text-sm leading-none"
+          >
+            &times;
+          </button>
+        )}
       </div>
 
       <div className="flex gap-1.5">
