@@ -23,7 +23,7 @@ export default function DashboardPage() {
   const fetchTasks = useTaskStore((s) => s.fetchTasks)
   const filteredTasks = useTaskStore((s) => s.filteredTasks)
   const tasks = useTaskStore((s) => s.tasks)
-  const archiveAllDone = useTaskStore((s) => s.archiveAllDone)
+  const archiveTask = useTaskStore((s) => s.archiveTask)
   const isTerminalOpen = useTerminalStore((s) => s.isOpen)
 
   const cardsByColumn = useMemo(
@@ -147,7 +147,7 @@ export default function DashboardPage() {
                   </h2>
                   {col.status === 'done' && columnTasks.length > 0 && (
                     <button
-                      onClick={() => archiveAllDone()}
+                      onClick={() => Promise.all(columnTasks.map((t) => archiveTask(t.id)))}
                       className="text-xs px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300"
                       title="完了タスクを全てアーカイブ"
                     >
