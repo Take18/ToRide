@@ -428,14 +428,27 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
             {form.type === 'chore' && (
               <div>
                 <label className={labelClass}>Directory{req}</label>
-                <input
-                  type="text"
-                  value={form.directory}
-                  onChange={(e) => set('directory', e.target.value)}
-                  placeholder="/path/to/directory"
-                  className={inputClass}
-                  required
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={form.directory}
+                    onChange={(e) => set('directory', e.target.value)}
+                    placeholder="/path/to/directory"
+                    className={`${inputClass} flex-1`}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const dir = await window.api.dialog.openDirectory()
+                      if (dir) set('directory', dir)
+                    }}
+                    className="px-3 py-1.5 rounded bg-gray-600 hover:bg-gray-500 text-white text-sm whitespace-nowrap"
+                    title="フォルダを選択"
+                  >
+                    参照...
+                  </button>
+                </div>
               </div>
             )}
 
