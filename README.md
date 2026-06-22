@@ -118,16 +118,16 @@ npm run dist
 
 | タイプ | 用途 | フィールド |
 |---|---|---|
-| `feat` | 機能開発 | branch, 分岐元ブランチ, Wrike ticket URL, prompt |
+| `feat` | 機能開発 | branch, 分岐元ブランチ, チケット URL, prompt |
 | `design` | 設計 | output 先パス |
 | `review` | PR レビュー | GitHub PR URL |
-| `bugfix` | バグ修正 | branch, 分岐元ブランチ, Wrike ticket URL |
+| `bugfix` | バグ修正 | branch, 分岐元ブランチ, チケット URL |
 | `research` | 調査 | branch, prompt |
 | `chore` | 雑務 | 作業ディレクトリ |
 
 ブランチ入力はオートコンプリート Combobox に対応。既存ブランチをプレフィックス一致順に候補表示します。
 
-チケット連携プラグインとして Wrike（デフォルト）と GitHub Issue をサポート。
+チケット連携プラグインとして外部チケットシステム（Wrike / GitHub Issue など）をサポート。
 
 タスクは `will_do → doing → done` の 3 ステータスで管理。
 
@@ -284,12 +284,12 @@ Claude Code のプロンプトから「タスク作成して」と指示する�
 
 1. **リポジトリ / pane マッピング**：リポジトリを追加し、その中に pane（作業ディレクトリ）を登録
    ```
-   リポジトリ: mep-frontend
-     p1  →  /Users/yourname/projects/mep-frontend
-     p2  →  /Users/yourname/projects/mep-frontend-wt2  (ワークツリー)
+   リポジトリ: my-app
+     p1  →  /Users/yourname/projects/my-app
+     p2  →  /Users/yourname/projects/my-app-wt2  (ワークツリー)
 
-   リポジトリ: mep-backend
-     p3  →  /Users/yourname/projects/mep-backend
+   リポジトリ: my-backend
+     p3  →  /Users/yourname/projects/my-backend
    ```
 2. **開発サーバー**：各 pane で起動可能なサーバーコマンドを設定
 3. **GitHub PAT**：PR ステータスバッジ表示・PR 自動同期用（`safeStorage` で暗号化保存）
@@ -343,11 +343,11 @@ cp settings.example.json my-settings.json
   "repos": [
     {
       "id": "repo1",
-      "name": "mep-frontend",
+      "name": "my-app",
       "panes": [
         {
           "id": "p1",
-          "path": "/Users/yourname/projects/mep-frontend",
+          "path": "/Users/yourname/projects/my-app",
           "devServers": [
             {
               "label": "Dev",
@@ -365,18 +365,18 @@ cp settings.example.json my-settings.json
         },
         {
           "id": "p2",
-          "path": "/Users/yourname/projects/mep-frontend-wt2",
+          "path": "/Users/yourname/projects/my-app-wt2",
           "devServers": []
         }
       ]
     },
     {
       "id": "repo2",
-      "name": "mep-backend",
+      "name": "my-backend",
       "panes": [
         {
           "id": "p3",
-          "path": "/Users/yourname/projects/mep-backend",
+          "path": "/Users/yourname/projects/my-backend",
           "devServers": []
         }
       ]
@@ -413,7 +413,7 @@ cp settings.example.json my-settings.json
 |---|---|---|
 | `repos` | `RepoConfig[]` | リポジトリ設定の配列 |
 | `repos[].id` | `string` | リポジトリ識別子（例: `"repo1"`） |
-| `repos[].name` | `string` | 表示名（例: `"mep-frontend"`） |
+| `repos[].name` | `string` | 表示名（例: `"my-app"`） |
 | `repos[].panes` | `PaneConfig[]` | このリポジトリに属する pane の配列 |
 | `repos[].panes[].id` | `string` | pane 識別子（例: `"p1"`） |
 | `repos[].panes[].path` | `string` | 作業ディレクトリの絶対パス（ワークツリーパス可） |
@@ -460,7 +460,7 @@ curl -s -X POST "http://127.0.0.1:$PORT/task-done" \
 |---|---|---|
 | `{title}` | 全タイプ | タスクタイトル |
 | `{branch}` | feat / bugfix / research | ブランチ名 |
-| `{ticket}` | feat / bugfix | Wrike チケット URL |
+| `{ticket}` | feat / bugfix | チケット URL |
 | `{prompt}` | feat / research | タスク固有のプロンプト |
 | `{output}` | design | 出力先パス |
 | `{pr-url}` | review | GitHub PR URL |
