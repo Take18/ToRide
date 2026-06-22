@@ -94,16 +94,14 @@ export function createStartTaskFn(deps: StartTaskDeps): (taskId: string, launchM
     let resolvedWorkdir = ''
     let assignedPane = task.pane
 
-    if ((task.type === 'chore' && 'directory' in task) || task.type === 'orchestrate') {
-      const dir = 'directory' in task ? task.directory : undefined
-      if (dir) {
-        resolvedWorkdir = expandPath(dir)
-      } else {
-        // repoId が指定されていればそのリポジトリの1番目のペイン、なければ最初のリポジトリの1番目のペイン
-        const repoId = 'repoId' in task ? (task as { repoId?: string }).repoId : undefined
-        const repo = repoId ? settings.repos.find((r) => r.id === repoId) : settings.repos[0]
-        resolvedWorkdir = expandPath(repo?.panes[0]?.path ?? homedir())
-      }
+    if (task.type === 'chore' && 'directory' in task) {
+      resolvedWorkdir = expandPath(task.directory)
+    } else if (task.type === 'orchestrate') {
+      const repoId = 'repoId' in task ? (task as { repoId?: string }).repoId : undefined
+      const repo = repoId ? settings.repos.find((r) => r.id === repoId) : settings.repos[0]
+      const pane = repo?.panes[0]
+      resolvedWorkdir = expandPath(pane?.path ?? homedir())
+      if (pane) assignedPane = pane.id
     } else {
       const repoId = 'repoId' in task ? task.repoId : undefined
       const repo = repoId ? settings.repos.find((r) => r.id === repoId) : settings.repos[0]
@@ -219,10 +217,14 @@ export function registerClaudeHandlers(
         let resolvedWorkdir = workdir
         let assignedPane = task.pane
 
-        if ((task.type === 'chore' && 'directory' in task) || task.type === 'orchestrate') {
-          // chore / orchestrate は directory を直接使用（pane不要）
-          const dir = 'directory' in task ? task.directory : undefined
-          resolvedWorkdir = dir ? expandPath(dir) : expandPath(settings.repos[0]?.panes[0]?.path ?? homedir())
+        if (task.type === 'chore' && 'directory' in task) {
+          resolvedWorkdir = expandPath(task.directory)
+        } else if (task.type === 'orchestrate') {
+          const repoId = 'repoId' in task ? (task as { repoId?: string }).repoId : undefined
+          const repo = repoId ? settings.repos.find((r) => r.id === repoId) : settings.repos[0]
+          const pane = repo?.panes[0]
+          resolvedWorkdir = expandPath(pane?.path ?? homedir())
+          if (pane) assignedPane = pane.id
         } else {
           // non-chore: タスクのリポジトリ内の空きペインを自動割り当て
           const repoId = 'repoId' in task ? task.repoId : undefined
