@@ -132,6 +132,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
+  const templateRefs = useRef<Record<string, HTMLTextAreaElement | null>>({})
   const dragSrc = useRef<{ ri: number; pi: number; di: number } | null>(null)
   const [dragOver, setDragOver] = useState<{ ri: number; pi: number; di: number; position: 'top' | 'bottom' } | null>(null)
   const [newExtraPath, setNewExtraPath] = useState('')
@@ -152,6 +153,23 @@ export default function SettingsPage() {
     window.api.hooks.statuslineStatus().then(setStatuslineStatus).catch(() => {})
     window.api.mcp.status().then(setMcpStatus).catch(() => {})
   }, [])
+
+  const insertTemplateVariable = (type: string, variable: string) => {
+    const textarea = templateRefs.current[type]
+    if (!textarea) return
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const current = settings.promptTemplates?.[type] ?? ''
+    const newValue = current.slice(0, start) + variable + current.slice(end)
+    setSettings((prev) => ({
+      ...prev,
+      promptTemplates: { ...prev.promptTemplates, [type]: newValue }
+    }))
+    requestAnimationFrame(() => {
+      textarea.selectionStart = textarea.selectionEnd = start + variable.length
+      textarea.focus()
+    })
+  }
 
   const updateRepo = (ri: number, updates: Partial<RepoConfig>) => {
     setSettings((prev) => {
@@ -797,7 +815,7 @@ export default function SettingsPage() {
           <p className="text-xs text-gray-500 mb-3">
             タスク開始時に自動送信される初期プロンプト。タスク個別の prompt が優先されます。
             <br />
-            <span className="text-gray-400"><span className="font-mono text-blue-400">{'{title}'}</span> はすべてのタイプで使用可能です。</span>
+            <span className="text-gray-400">変数名をクリックするとカーソル位置に挿入できます。</span>
           </p>
           <div className="space-y-3">
             {TASK_TYPES.map((type) => {
@@ -813,13 +831,24 @@ export default function SettingsPage() {
                 <div key={type}>
                   <div className="flex items-center gap-2 mb-1">
                     <label className="text-xs text-gray-400 font-mono">{type}</label>
-                    <span className="text-xs text-gray-600">
+                    <span className="text-xs flex flex-wrap gap-1">
+                      <span
+                        className="font-mono text-blue-500 cursor-pointer hover:bg-blue-900/40 rounded px-0.5"
+                        title="クリックして挿入"
+                        onClick={() => insertTemplateVariable(type, '{title}')}
+                      >{'{title}'}</span>
                       {hints[type].map((v) => (
-                        <span key={v} className="font-mono text-blue-500 mr-1">{v}</span>
+                        <span
+                          key={v}
+                          className="font-mono text-blue-500 cursor-pointer hover:bg-blue-900/40 rounded px-0.5"
+                          title="クリックして挿入"
+                          onClick={() => insertTemplateVariable(type, v)}
+                        >{v}</span>
                       ))}
                     </span>
                   </div>
                   <textarea
+                    ref={(el) => { templateRefs.current[type] = el }}
                     value={settings.promptTemplates?.[type] ?? ''}
                     onChange={(e) =>
                       setSettings((prev) => ({
