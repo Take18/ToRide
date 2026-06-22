@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { TaskType, RuntimeTask } from '../../types/task'
 import type { RepoConfig } from '../../types/ipc'
 import type { TicketProviderMeta } from '../../types/plugin'
@@ -55,6 +55,20 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
   const tasks = useTaskStore((s) => s.tasks)
   const createTask = useTaskStore((s) => s.createTask)
   const updateTask = useTaskStore((s) => s.updateTask)
+  const promptRef = useRef<HTMLTextAreaElement>(null)
+
+  const insertVariable = (variable: string) => {
+    const textarea = promptRef.current
+    if (!textarea) return
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const newValue = form.prompt.slice(0, start) + variable + form.prompt.slice(end)
+    set('prompt', newValue)
+    requestAnimationFrame(() => {
+      textarea.selectionStart = textarea.selectionEnd = start + variable.length
+      textarea.focus()
+    })
+  }
 
   const loadBranches = (repoId: string, allRepos: RepoConfig[]) => {
     setAvailableBranches([])
@@ -372,8 +386,12 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
                   <label className={labelClass.replace(' mb-1', '')}>
                     Prompt{form.type === 'research' && req}
                   </label>
-                  <span className="text-xs text-gray-500 flex flex-wrap gap-1">
-                    <span className="font-mono text-blue-400">{'{title}'}</span>
+                  <span className="text-xs flex flex-wrap gap-1">
+                    <span
+                      className="font-mono text-blue-400 cursor-pointer hover:bg-blue-900/40 rounded px-0.5"
+                      title="クリックして挿入"
+                      onClick={() => insertVariable('{title}')}
+                    >{'{title}'}</span>
                     {({
                       feat: ['{branch}', '{ticket}', '{prompt}'],
                       design: ['{output}'],
@@ -382,11 +400,17 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
                       research: ['{branch}', '{prompt}'],
                       chore: ['{directory}'],
                     } as Record<string, string[]>)[form.type]?.map((v) => (
-                      <span key={v} className="font-mono text-blue-400">{v}</span>
+                      <span
+                        key={v}
+                        className="font-mono text-blue-400 cursor-pointer hover:bg-blue-900/40 rounded px-0.5"
+                        title="クリックして挿入"
+                        onClick={() => insertVariable(v)}
+                      >{v}</span>
                     ))}
                   </span>
                 </div>
                 <textarea
+                  ref={promptRef}
                   value={form.prompt}
                   onChange={(e) => set('prompt', e.target.value)}
                   placeholder="Claude Codeへの指示..."
