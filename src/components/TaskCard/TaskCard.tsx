@@ -332,6 +332,15 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
                   <PRStatusBadge prStatus={task.prStatus} />
                 </div>
               )}
+              {task.type !== 'review' && task.prUrl && (
+                <button
+                  onClick={() => openLink(task.prUrl!)}
+                  onKeyDown={handleButtonKeyDown}
+                  className="px-2 py-1 rounded text-xs bg-purple-700 hover:bg-purple-600 text-white"
+                >
+                  PR
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -402,6 +411,15 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
                   <PRStatusBadge prStatus={task.prStatus} />
                 </div>
               )}
+              {task.type !== 'review' && task.prUrl && (
+                <button
+                  onClick={() => openLink(task.prUrl!)}
+                  onKeyDown={handleButtonKeyDown}
+                  className="px-2 py-1 rounded text-xs bg-purple-700 hover:bg-purple-600 text-white"
+                >
+                  PR
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -435,6 +453,15 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
                   className="px-2 py-1 rounded text-xs bg-gray-700 hover:bg-gray-600 text-gray-300"
                 >
                   チケット
+                </button>
+              )}
+              {task.type !== 'review' && task.prUrl && (
+                <button
+                  onClick={() => openLink(task.prUrl!)}
+                  onKeyDown={handleButtonKeyDown}
+                  className="px-2 py-1 rounded text-xs bg-purple-700 hover:bg-purple-600 text-white"
+                >
+                  PR
                 </button>
               )}
               {'sessionId' in task && task.sessionId && (

@@ -4,18 +4,24 @@ import type { ContextLineService } from './ContextLineService'
 import type { AppSettings, ContextInfo, LaunchMode } from '../../../src/types/ipc'
 
 export type ContextUpdateCallback = (info: ContextInfo) => void
+export type PrUrlCallback = (taskId: string, prUrl: string) => void
+
+const PR_URL_PATTERN = /https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/\d+/g
 
 export class ClaudeService {
   private terminalService: TerminalService
   private getSettings: () => Pick<AppSettings, 'notificationsEnabled'>
   private getWindow?: () => BrowserWindow | null
   private contextCallbacks: Set<ContextUpdateCallback> = new Set()
+  private prUrlCallbacks: Set<PrUrlCallback> = new Set()
   private notifiedThresholds: Map<string, Set<number>> = new Map()
   // 正規表現パス用: デルタ値 (↓ 8.6k tokens) の累積に使用
   private maxContextUsed: Map<string, number> = new Map()
   private cleanBuffers: Map<string, string> = new Map()
   // 全ソース共通のゲート: ここを通過した最大値より小さい更新は全て捨てる
   private lastEmittedMax: Map<string, number> = new Map()
+  // タスクごとに検出済みPR URLを管理（重複通知防止）
+  private detectedPrUrls: Map<string, string> = new Map()
 
   constructor(
     terminalService: TerminalService,
@@ -86,6 +92,7 @@ export class ClaudeService {
       if (info) {
         this.fireContextUpdate(info)
       }
+      this.detectPrUrl(taskId, data)
     })
   }
 
@@ -159,6 +166,24 @@ export class ClaudeService {
     this.contextCallbacks.add(callback)
     return () => {
       this.contextCallbacks.delete(callback)
+    }
+  }
+
+  private detectPrUrl(taskId: string, data: string): void {
+    // ANSIエスケープシーケンスを除去してクリーンなテキストで検索
+    const clean = data.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '').replace(/\r/g, '')
+    const matches = clean.match(PR_URL_PATTERN)
+    if (!matches) return
+    const prUrl = matches[0]
+    if (this.detectedPrUrls.get(taskId) === prUrl) return
+    this.detectedPrUrls.set(taskId, prUrl)
+    for (const cb of this.prUrlCallbacks) cb(taskId, prUrl)
+  }
+
+  onPrUrlDetected(callback: PrUrlCallback): () => void {
+    this.prUrlCallbacks.add(callback)
+    return () => {
+      this.prUrlCallbacks.delete(callback)
     }
   }
 
