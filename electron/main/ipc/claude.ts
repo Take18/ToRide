@@ -133,7 +133,7 @@ export function createStartTaskFn(deps: StartTaskDeps): (taskId: string, launchM
         const systemPrompt = settings.orchestrateSystemPrompt ?? DEFAULT_ORCHESTRATE_SYSTEM_PROMPT
         rawPrompt = buildOrchestratePrompt(taskId, systemPrompt, task.prompt)
       } else {
-        rawPrompt = task.prompt || settings.promptTemplates?.[task.type]
+        rawPrompt = settings.promptTemplates?.[task.type] || task.prompt
       }
       const taskPrompt = rawPrompt ? (task.type === 'orchestrate' ? rawPrompt : interpolateTemplate(rawPrompt, task)) : undefined
       const effectiveLaunchMode = resolveLaunchMode(launchMode, task.type === 'research', settings)
@@ -270,7 +270,7 @@ export function registerClaudeHandlers(
             const systemPrompt = settings.orchestrateSystemPrompt ?? DEFAULT_ORCHESTRATE_SYSTEM_PROMPT
             rawPrompt = buildOrchestratePrompt(taskId, systemPrompt, task.prompt)
           } else {
-            rawPrompt = prompt || task.prompt || settings.promptTemplates?.[task.type]
+            rawPrompt = settings.promptTemplates?.[task.type] || prompt || task.prompt
           }
           const taskPrompt = rawPrompt ? (task.type === 'orchestrate' ? rawPrompt : interpolateTemplate(rawPrompt, task)) : undefined
           const effectiveLaunchMode = resolveLaunchMode(launchMode, task.type === 'research', settings)
