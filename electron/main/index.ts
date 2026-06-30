@@ -250,12 +250,12 @@ app.whenReady().then(() => {
   const contextLineService = new ContextLineService(localHttpServer)
   const mcpHookService = new McpHookService()
   const claudeService = new ClaudeService(terminalService, getSettings, contextLineService, getWindow)
-  claudeService.onPrUrlDetected((taskId, prUrl) => {
+  contextLineService.onPrDetected(({ taskId, prUrl }) => {
     try {
       taskService.update(taskId, { prUrl })
       getWindow()?.webContents.send('tasks:updated')
     } catch (err) {
-      console.error('[claudeService] PR URL save failed:', err)
+      console.error('[contextLineService] PR URL save failed:', err)
     }
   })
   const startTaskFn = createStartTaskFn({
