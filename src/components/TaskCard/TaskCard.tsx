@@ -210,6 +210,10 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
     window.api.shell.openExternal(url)
   }
 
+  const prLabel = task.prUrl
+    ? `PR#${task.prUrl.match(/\/pull\/(\d+)/)?.[1] ?? ''}`
+    : 'PR'
+
   const handleCardKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).tagName === 'BUTTON') return
     switch (e.key) {
@@ -338,7 +342,7 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
                   onKeyDown={handleButtonKeyDown}
                   className="px-2 py-1 rounded text-xs bg-purple-700 hover:bg-purple-600 text-white"
                 >
-                  PR
+                  {prLabel}
                 </button>
               )}
             </div>
@@ -417,7 +421,7 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
                   onKeyDown={handleButtonKeyDown}
                   className="px-2 py-1 rounded text-xs bg-purple-700 hover:bg-purple-600 text-white"
                 >
-                  PR
+                  {prLabel}
                 </button>
               )}
             </div>
@@ -461,7 +465,7 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
                   onKeyDown={handleButtonKeyDown}
                   className="px-2 py-1 rounded text-xs bg-purple-700 hover:bg-purple-600 text-white"
                 >
-                  PR
+                  {prLabel}
                 </button>
               )}
               {'sessionId' in task && task.sessionId && (
