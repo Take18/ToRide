@@ -162,6 +162,7 @@ export class ClaudeService {
     }
   }
 
+
   private checkThresholds(info: ContextInfo): void {
     const ratio = info.used / info.limit
     const thresholds = this.notifiedThresholds.get(info.taskId)

@@ -210,6 +210,10 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
     window.api.shell.openExternal(url)
   }
 
+  const prLabel = task.prUrl
+    ? `PR#${task.prUrl.match(/\/pull\/(\d+)/)?.[1] ?? ''}`
+    : 'PR'
+
   const handleCardKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).tagName === 'BUTTON') return
     switch (e.key) {
@@ -332,6 +336,15 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
                   <PRStatusBadge prStatus={task.prStatus} />
                 </div>
               )}
+              {task.type !== 'review' && task.prUrl && (
+                <button
+                  onClick={() => openLink(task.prUrl!)}
+                  onKeyDown={handleButtonKeyDown}
+                  className="px-2 py-1 rounded text-xs bg-purple-700 hover:bg-purple-600 text-white"
+                >
+                  {prLabel}
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -402,6 +415,15 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
                   <PRStatusBadge prStatus={task.prStatus} />
                 </div>
               )}
+              {task.type !== 'review' && task.prUrl && (
+                <button
+                  onClick={() => openLink(task.prUrl!)}
+                  onKeyDown={handleButtonKeyDown}
+                  className="px-2 py-1 rounded text-xs bg-purple-700 hover:bg-purple-600 text-white"
+                >
+                  {prLabel}
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -435,6 +457,15 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
                   className="px-2 py-1 rounded text-xs bg-gray-700 hover:bg-gray-600 text-gray-300"
                 >
                   チケット
+                </button>
+              )}
+              {task.type !== 'review' && task.prUrl && (
+                <button
+                  onClick={() => openLink(task.prUrl!)}
+                  onKeyDown={handleButtonKeyDown}
+                  className="px-2 py-1 rounded text-xs bg-purple-700 hover:bg-purple-600 text-white"
+                >
+                  {prLabel}
                 </button>
               )}
               {'sessionId' in task && task.sessionId && (

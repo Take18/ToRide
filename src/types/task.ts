@@ -13,6 +13,7 @@ export type BaseTask = {
   title: string
   created_at?: string
   sessionId?: string  // Claude session ID (for --resume)
+  prUrl?: string      // GitHub PR URL (auto-detected from terminal output)
 }
 
 export type DesignTask = {
