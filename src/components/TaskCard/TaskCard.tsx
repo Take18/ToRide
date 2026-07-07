@@ -50,7 +50,13 @@ function SplitButton({ label, disabled, disabledTitle, colorClass, defaultMode, 
   useLayoutEffect(() => {
     if (!open || !triggerRef.current) return
     const r = triggerRef.current.getBoundingClientRect()
-    setDropPos({ top: r.bottom + 4, left: r.left })
+    const dropHeight = dropRef.current?.offsetHeight ?? 0
+    const spaceBelow = window.innerHeight - r.bottom
+    const openUpward = dropHeight > 0 && spaceBelow < dropHeight + 8
+    setDropPos({
+      top: openUpward ? r.top - dropHeight - 4 : r.bottom + 4,
+      left: r.left,
+    })
   }, [open])
 
   useEffect(() => {
