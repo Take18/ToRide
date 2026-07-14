@@ -4,6 +4,7 @@ import type { GitService } from '../services/GitService'
 import type { TaskService } from '../services/TaskService'
 import type { AppSettings } from '../../../src/types/ipc'
 import type { ReviewTask } from '../../../src/types/task'
+import { expandPath } from '../utils/path'
 
 export function registerGitHubHandlers(
   gitHubService: GitHubService,
@@ -24,14 +25,22 @@ async function buildRepoFullNameMap(
 ): Promise<Map<string, string>> {
   const map = new Map<string, string>()
   for (const repo of settings.repos) {
-    const firstPane = repo.panes[0]
-    if (!firstPane?.path) continue
-    const fullName = await gitService.getRemoteFullName(firstPane.path)
-    if (fullName) {
-      map.set(fullName.toLowerCase(), repo.id)
+    // 先頭ペインが解決できない場合に備えて全ペインを順に試す
+    for (const pane of repo.panes) {
+      if (!pane.path) continue
+      const fullName = await gitService.getRemoteFullName(expandPath(pane.path))
+      if (fullName) {
+        map.set(fullName.toLowerCase(), repo.id)
+        break
+      }
     }
   }
   return map
+}
+
+function extractFullNameFromPrUrl(url: string): string | null {
+  const match = url.match(/github\.com\/([^/]+\/[^/]+)\/pull\/\d+/)
+  return match ? match[1] : null
 }
 
 export async function syncReviewPRs(
@@ -90,14 +99,29 @@ export async function syncReviewPRs(
   let statusUpdated = 0
   for (const task of reviewTasksWithUrl) {
     const url = (task as { url?: string }).url!
+    const updates: Record<string, unknown> = {}
+
+    // repoId未設定の既存タスクはPRのURLから補完
+    if (!(task as { repoId?: string }).repoId) {
+      const fullName = extractFullNameFromPrUrl(url)
+      const repoId = fullName ? repoFullNameMap.get(fullName.toLowerCase()) : undefined
+      if (repoId) {
+        updates.repoId = repoId
+      }
+    }
+
     try {
       const prStatus = await gitHubService.fetchPRStatus(url, githubPat)
       if (prStatus !== null && prStatus !== (task as { prStatus?: string }).prStatus) {
-        taskService.update(task.id, { prStatus } as Parameters<typeof taskService.update>[1])
-        statusUpdated++
+        updates.prStatus = prStatus
       }
     } catch {
       // 個別PRのエラーは無視
+    }
+
+    if (Object.keys(updates).length > 0) {
+      taskService.update(task.id, updates as Parameters<typeof taskService.update>[1])
+      statusUpdated++
     }
   }
 
