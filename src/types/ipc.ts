@@ -24,8 +24,9 @@ export type RepoConfig = {
 // Claude起動モード
 export type LaunchMode = 'normal' | 'auto' | 'bypass' | 'plan'
 
-// Claude起動モデル（default は --model 指定なし）
-export type ClaudeModel = 'default' | 'opus' | 'sonnet' | 'haiku'
+// Claude起動モデル。'default' は --model 指定なし、それ以外はエイリアスまたはフルモデルID
+// （一覧は /v1/models から動的取得。取得失敗時は opus/sonnet/haiku にフォールバック）
+export type ClaudeModel = 'default' | (string & {})
 
 // アプリ設定
 export type AppSettings = {
@@ -105,6 +106,7 @@ export type IpcChannels = {
   // Claude
   'claude:start': [{ taskId: string; workdir: string; prompt?: string; cols?: number; rows?: number; launchMode?: LaunchMode; model?: ClaudeModel }, void]
   'claude:resume': [{ taskId: string; cols?: number; rows?: number; launchMode?: LaunchMode; model?: ClaudeModel }, void]
+  'claude:list-models': [void, string[]]
 
   // Dev Server
   'devserver:start': [{ repoId: string; paneId: string; label: string }, void]
@@ -190,6 +192,7 @@ export type WindowApi = {
   claude: {
     start: (taskId: string, workdir: string, prompt?: string, cols?: number, rows?: number, launchMode?: LaunchMode, model?: ClaudeModel) => Promise<void>
     resume: (taskId: string, cols?: number, rows?: number, launchMode?: LaunchMode, model?: ClaudeModel) => Promise<void>
+    listModels: () => Promise<string[]>
     onContextUpdate: (callback: (info: ContextInfo) => void) => () => void
   }
   devserver: {

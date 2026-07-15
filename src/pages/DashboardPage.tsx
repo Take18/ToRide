@@ -19,6 +19,7 @@ export default function DashboardPage() {
   const [editingTask, setEditingTask] = useState<RuntimeTask | null>(null)
   const [repos, setRepos] = useState<RepoConfig[]>([])
   const [settingsLaunchMode, setSettingsLaunchMode] = useState<LaunchMode>('normal')
+  const [availableModels, setAvailableModels] = useState<string[]>([])
   const [prSyncing, setPrSyncing] = useState(false)
   const fetchTasks = useTaskStore((s) => s.fetchTasks)
   const filteredTasks = useTaskStore((s) => s.filteredTasks)
@@ -90,6 +91,7 @@ export default function DashboardPage() {
       else if (s.useAutoMode) setSettingsLaunchMode('auto')
       else setSettingsLaunchMode('normal')
     })
+    window.api.claude.listModels().then(setAvailableModels).catch(() => {})
   }, [fetchTasks])
 
   useEffect(() => {
@@ -162,6 +164,7 @@ export default function DashboardPage() {
                       task={task}
                       hasFreePane={hasFreePaneForTask(task)}
                       defaultLaunchMode={settingsLaunchMode}
+                      availableModels={availableModels}
                       onEdit={task.status === 'will_do' ? (t) => { setEditingTask(t); setFormOpen(true) } : undefined}
                       onNavigate={handleNavigate}
                     />

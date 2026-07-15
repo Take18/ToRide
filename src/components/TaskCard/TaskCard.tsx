@@ -12,6 +12,7 @@ type Props = {
   task: RuntimeTask
   hasFreePane?: boolean
   defaultLaunchMode?: LaunchMode
+  availableModels?: string[]
   onEdit?: (task: RuntimeTask) => void
   onNavigate?: (taskId: string, dir: 'up' | 'down' | 'left' | 'right') => void
 }
@@ -27,7 +28,8 @@ const TYPE_COLORS: Record<string, string> = {
 }
 
 const ALL_LAUNCH_MODES: LaunchMode[] = ['normal', 'auto', 'bypass', 'plan']
-const ALL_MODELS: ClaudeModel[] = ['default', 'opus', 'sonnet', 'haiku']
+// モデル一覧の取得前・取得失敗時に使うフォールバック
+const FALLBACK_MODELS: string[] = ['opus', 'sonnet', 'haiku']
 
 type DropdownSelectProps<T extends string> = {
   value: T
@@ -114,13 +116,15 @@ type SplitButtonProps = {
   disabledTitle?: string
   colorClass: string
   defaultMode: LaunchMode
+  models: string[]
   onLaunch: (mode: LaunchMode, model: ClaudeModel) => void
   onKeyDown: (e: React.KeyboardEvent) => void
 }
 
-function SplitButton({ label, disabled, disabledTitle, colorClass, defaultMode, onLaunch, onKeyDown }: SplitButtonProps) {
+function SplitButton({ label, disabled, disabledTitle, colorClass, defaultMode, models, onLaunch, onKeyDown }: SplitButtonProps) {
   const [selectedMode, setSelectedMode] = useState<LaunchMode>(defaultMode)
   const [selectedModel, setSelectedModel] = useState<ClaudeModel>('default')
+  const modelOptions: ClaudeModel[] = ['default', ...models]
 
   useEffect(() => { setSelectedMode(defaultMode) }, [defaultMode])
 
@@ -150,7 +154,7 @@ function SplitButton({ label, disabled, disabledTitle, colorClass, defaultMode, 
       />
       <DropdownSelect
         value={selectedModel}
-        options={ALL_MODELS}
+        options={modelOptions}
         disabled={disabled}
         triggerClass={`px-2 py-1 rounded-r border-l border-black/20 text-xs ${base}`}
         ariaLabel="モデルを選択"
@@ -200,7 +204,8 @@ function DoneDetail({ task, onButtonKeyDown }: { task: RuntimeTask; onButtonKeyD
   )
 }
 
-export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode = 'normal', onEdit, onNavigate }: Props) {
+export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode = 'normal', availableModels, onEdit, onNavigate }: Props) {
+  const models = availableModels && availableModels.length > 0 ? availableModels : FALLBACK_MODELS
   const tasks = useTaskStore((s) => s.tasks)
   const startTask = useTaskStore((s) => s.startTask)
   const resumeTask = useTaskStore((s) => s.resumeTask)
@@ -332,6 +337,7 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
                 disabledTitle={depBlocked ? '依存タスクが未完了です' : paneBlocked ? '空きペインがありません' : undefined}
                 colorClass="bg-blue-600 hover:bg-blue-700 text-white"
                 defaultMode={effectiveDefaultMode}
+                models={models}
                 onLaunch={(mode, model) => handleStart(mode, model)}
                 onKeyDown={handleButtonKeyDown}
               />
@@ -522,6 +528,7 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
                   disabledTitle="空きペインがありません"
                   colorClass="bg-indigo-600 hover:bg-indigo-700 text-white"
                   defaultMode={effectiveDefaultMode}
+                  models={models}
                   onLaunch={(mode, model) => handleResume(mode, model)}
                   onKeyDown={handleButtonKeyDown}
                 />

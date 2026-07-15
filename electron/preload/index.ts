@@ -71,6 +71,7 @@ const api = {
       ipcRenderer.invoke('claude:start', { taskId, workdir, prompt, cols, rows, launchMode, model }),
     resume: (taskId: string, cols?: number, rows?: number, launchMode?: LaunchMode, model?: ClaudeModel): Promise<void> =>
       ipcRenderer.invoke('claude:resume', { taskId, cols, rows, launchMode, model }),
+    listModels: (): Promise<string[]> => ipcRenderer.invoke('claude:list-models'),
     onContextUpdate: (callback: (info: ContextInfo) => void): (() => void) => {
       const listener = (_: IpcRendererEvent, info: ContextInfo): void => callback(info)
       ipcRenderer.on('claude:context-update', listener)

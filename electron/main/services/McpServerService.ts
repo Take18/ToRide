@@ -111,8 +111,8 @@ export class McpServerService {
                 },
                 model: {
                   type: 'string',
-                  enum: ['default', 'opus', 'sonnet', 'haiku'],
-                  description: 'Claude のモデル。default（または省略）は --model 指定なし、それ以外は --model <エイリアス> で起動する',
+                  description:
+                    'Claude のモデル。default（または省略）は --model 指定なし。エイリアス（opus / sonnet / haiku / fable 等）またはフルモデルID（claude-fable-5 等）を指定すると --model <値> で起動する',
                 },
               },
               required: ['id'],

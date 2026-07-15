@@ -7,6 +7,7 @@ import type { TaskService } from '../services/TaskService'
 import type { GitService } from '../services/GitService'
 import type { TerminalService } from '../services/TerminalService'
 import type { StopHookService } from '../services/StopHookService'
+import type { ModelListService } from '../services/ModelListService'
 import type { AppSettings, ClaudeModel, LaunchMode } from '../../../src/types/ipc'
 import type { Task } from '../../../src/types/task'
 
@@ -198,8 +199,13 @@ export function registerClaudeHandlers(
   terminalService: TerminalService,
   getWindow: () => BrowserWindow | null,
   getSettings: () => AppSettings,
-  stopHookService?: StopHookService
+  stopHookService?: StopHookService,
+  modelListService?: ModelListService
 ): void {
+  if (modelListService) {
+    ipcMain.handle('claude:list-models', () => modelListService.listModels())
+  }
+
   ipcMain.handle(
     'claude:start',
     async (
