@@ -252,6 +252,9 @@ app.whenReady().then(() => {
   const claudeService = new ClaudeService(terminalService, getSettings, contextLineService, getWindow)
   contextLineService.onPrDetected(({ taskId, prUrl }) => {
     try {
+      // reviewタスクはレビュー対象PRをurlに持つため、検知したPRを紐付けない
+      const task = taskService.list().find((t) => t.id === taskId)
+      if (!task || task.type === 'review') return
       taskService.update(taskId, { prUrl })
       getWindow()?.webContents.send('tasks:updated')
     } catch (err) {
