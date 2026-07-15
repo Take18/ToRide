@@ -30,6 +30,7 @@ function applyFilters(tasks: RuntimeTask[], searchQuery: string, typeFilters: Ta
       if ('branch' in t && t.branch?.toLowerCase().includes(q)) return true
       if ('ticket' in t && t.ticket?.toLowerCase().includes(q)) return true
       if ('url' in t && t.url?.toLowerCase().includes(q)) return true
+      if (t.type !== 'review' && t.prUrl?.toLowerCase().includes(q)) return true
       return false
     })
   }
