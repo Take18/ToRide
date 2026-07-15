@@ -130,33 +130,36 @@ function SplitButton({ label, disabled, disabledTitle, colorClass, defaultMode, 
 
   const disabledColor = 'bg-gray-600 text-gray-400 cursor-not-allowed'
   const base = disabled ? disabledColor : colorClass
+  const modelBase = disabled ? disabledColor : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
 
   return (
-    <div className="flex">
-      <button
-        onClick={disabled ? undefined : () => onLaunch(selectedMode, selectedModel)}
-        onKeyDown={onKeyDown}
-        disabled={disabled}
-        title={disabled ? disabledTitle : undefined}
-        className={`px-3 py-1 rounded-l text-xs font-medium ${base}`}
-      >
-        {label}（{selectedMode}）
-      </button>
-      <DropdownSelect
-        value={selectedMode}
-        options={ALL_LAUNCH_MODES}
-        disabled={disabled}
-        triggerClass={`px-1.5 py-1 border-l border-black/20 text-xs ${base}`}
-        ariaLabel="起動モードを選択"
-        trigger="▾"
-        onSelect={setSelectedMode}
-        onKeyDown={onKeyDown}
-      />
+    <div className="flex items-center gap-2">
+      <div className="flex">
+        <button
+          onClick={disabled ? undefined : () => onLaunch(selectedMode, selectedModel)}
+          onKeyDown={onKeyDown}
+          disabled={disabled}
+          title={disabled ? disabledTitle : undefined}
+          className={`px-3 py-1 rounded-l text-xs font-medium ${base}`}
+        >
+          {label}（{selectedMode}）
+        </button>
+        <DropdownSelect
+          value={selectedMode}
+          options={ALL_LAUNCH_MODES}
+          disabled={disabled}
+          triggerClass={`px-1.5 py-1 rounded-r border-l border-black/20 text-xs ${base}`}
+          ariaLabel="起動モードを選択"
+          trigger="▾"
+          onSelect={setSelectedMode}
+          onKeyDown={onKeyDown}
+        />
+      </div>
       <DropdownSelect
         value={selectedModel}
         options={modelOptions}
         disabled={disabled}
-        triggerClass={`px-2 py-1 rounded-r border-l border-black/20 text-xs ${base}`}
+        triggerClass={`px-2 py-1 rounded text-xs ${modelBase}`}
         ariaLabel="モデルを選択"
         trigger={`${selectedModel} ▾`}
         onSelect={setSelectedModel}
