@@ -5,7 +5,7 @@ import type { LocalHttpServer } from './LocalHttpServer.js'
 import type { TaskService } from './TaskService.js'
 import type { DevServerService } from './DevServerService.js'
 import type { Task } from '../../../src/types/task.js'
-import type { AppSettings, LaunchMode } from '../../../src/types/ipc.js'
+import type { AppSettings, ClaudeModel, LaunchMode } from '../../../src/types/ipc.js'
 
 export class McpServerService {
   constructor(
@@ -14,7 +14,7 @@ export class McpServerService {
     devServerService: DevServerService,
     getSettings: () => AppSettings,
     notifyTasksUpdated: () => void = () => {},
-    startTask?: (taskId: string, launchMode?: LaunchMode) => Promise<void>
+    startTask?: (taskId: string, launchMode?: LaunchMode, model?: ClaudeModel) => Promise<void>
   ) {
     const createServer = (): Server => {
       const server = new Server(
@@ -109,6 +109,11 @@ export class McpServerService {
                   enum: ['normal', 'auto', 'bypass', 'plan'],
                   description: 'Claude の起動モード。省略時は設定値に従う。bypass=--dangerously-skip-permissions, auto=--permission-mode auto, plan=--permission-mode plan, normal=デフォルト',
                 },
+                model: {
+                  type: 'string',
+                  enum: ['default', 'opus', 'sonnet', 'haiku'],
+                  description: 'Claude のモデル。default（または省略）は --model 指定なし、それ以外は --model <エイリアス> で起動する',
+                },
               },
               required: ['id'],
             },
@@ -200,11 +205,11 @@ export class McpServerService {
               return { content: [{ type: 'text' as const, text: `deleted: ${id}` }] }
             }
             case 'start_task': {
-              const { id, launchMode } = args as { id: string; launchMode?: LaunchMode }
+              const { id, launchMode, model } = args as { id: string; launchMode?: LaunchMode; model?: ClaudeModel }
               if (!startTask) {
                 throw new Error('start_task is not available')
               }
-              await startTask(id, launchMode)
+              await startTask(id, launchMode, model)
               notifyTasksUpdated()
               const task = taskService.list().find((t) => t.id === id)
               return { content: [{ type: 'text' as const, text: JSON.stringify(task, null, 2) }] }

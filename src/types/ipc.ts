@@ -24,6 +24,9 @@ export type RepoConfig = {
 // Claude起動モード
 export type LaunchMode = 'normal' | 'auto' | 'bypass' | 'plan'
 
+// Claude起動モデル（default は --model 指定なし）
+export type ClaudeModel = 'default' | 'opus' | 'sonnet' | 'haiku'
+
 // アプリ設定
 export type AppSettings = {
   repos: RepoConfig[]
@@ -100,8 +103,8 @@ export type IpcChannels = {
   'git:branches': [string, string[]]
 
   // Claude
-  'claude:start': [{ taskId: string; workdir: string; prompt?: string; cols?: number; rows?: number; launchMode?: LaunchMode }, void]
-  'claude:resume': [{ taskId: string; cols?: number; rows?: number; launchMode?: LaunchMode }, void]
+  'claude:start': [{ taskId: string; workdir: string; prompt?: string; cols?: number; rows?: number; launchMode?: LaunchMode; model?: ClaudeModel }, void]
+  'claude:resume': [{ taskId: string; cols?: number; rows?: number; launchMode?: LaunchMode; model?: ClaudeModel }, void]
 
   // Dev Server
   'devserver:start': [{ repoId: string; paneId: string; label: string }, void]
@@ -185,8 +188,8 @@ export type WindowApi = {
     branches: (workdir: string) => Promise<string[]>
   }
   claude: {
-    start: (taskId: string, workdir: string, prompt?: string, cols?: number, rows?: number, launchMode?: LaunchMode) => Promise<void>
-    resume: (taskId: string, cols?: number, rows?: number, launchMode?: LaunchMode) => Promise<void>
+    start: (taskId: string, workdir: string, prompt?: string, cols?: number, rows?: number, launchMode?: LaunchMode, model?: ClaudeModel) => Promise<void>
+    resume: (taskId: string, cols?: number, rows?: number, launchMode?: LaunchMode, model?: ClaudeModel) => Promise<void>
     onContextUpdate: (callback: (info: ContextInfo) => void) => () => void
   }
   devserver: {
