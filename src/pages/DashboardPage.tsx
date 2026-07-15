@@ -26,6 +26,8 @@ export default function DashboardPage() {
   const tasks = useTaskStore((s) => s.tasks)
   const archiveTask = useTaskStore((s) => s.archiveTask)
   const isTerminalOpen = useTerminalStore((s) => s.isOpen)
+  const terminalPanelWidth = useTerminalStore((s) => s.panelWidth)
+  const isTerminalResizing = useTerminalStore((s) => s.isResizing)
 
   const cardsByColumn = useMemo(
     () => COLUMNS.map((col) => filteredTasks.filter((t) => t.status === col.status)),
@@ -135,8 +137,8 @@ export default function DashboardPage() {
         <PaneStatusSidebar />
 
         <div
-          className="flex-1 flex overflow-hidden transition-all"
-          style={{ marginRight: isTerminalOpen ? 480 : 0 }}
+          className={`flex-1 flex overflow-hidden ${isTerminalResizing ? '' : 'transition-all'}`}
+          style={{ marginRight: isTerminalOpen ? terminalPanelWidth : 0 }}
         >
           {COLUMNS.map((col) => {
             const columnTasks = filteredTasks.filter((t) => t.status === col.status)

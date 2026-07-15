@@ -4,10 +4,8 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { SerializeAddon } from '@xterm/addon-serialize'
 import '@xterm/xterm/css/xterm.css'
-import { useTerminalStore } from '../../stores/terminalStore'
+import { useTerminalStore, clampPanelWidth } from '../../stores/terminalStore'
 import { useTaskStore } from '../../stores/taskStore'
-
-const PANEL_WIDTH = 480
 
 type TerminalEntry = {
   terminal: Terminal
@@ -23,6 +21,8 @@ export default function TerminalPanel() {
   const devServerLogKey = useTerminalStore((s) => s.devServerLogKey)
   const closeTerminal = useTerminalStore((s) => s.closeTerminal)
   const setPanelDimensions = useTerminalStore((s) => s.setPanelDimensions)
+  const panelWidth = useTerminalStore((s) => s.panelWidth)
+  const isResizing = useTerminalStore((s) => s.isResizing)
 
   const tasks = useTaskStore((s) => s.tasks)
   const activeTask = activeTaskId ? tasks.find((t) => t.id === activeTaskId) : null
@@ -260,12 +260,42 @@ export default function TerminalPanel() {
     }
   }, [])
 
+  // 左端ハンドルのドラッグでパネル幅を変更
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const { setPanelWidth, setResizing } = useTerminalStore.getState()
+    setResizing(true)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const onMouseMove = (ev: MouseEvent) => {
+      setPanelWidth(clampPanelWidth(window.innerWidth - ev.clientX))
+    }
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      setResizing(false)
+    }
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+  }, [])
+
   // isOpenがfalseの時もコンポーネントは存在し続けてPTYデータを受け取り続ける
   return (
     <div
       className="fixed top-0 right-0 h-full bg-gray-900 border-l border-gray-700 flex flex-col z-40"
-      style={{ width: PANEL_WIDTH, display: isOpen ? 'flex' : 'none' }}
+      style={{ width: panelWidth, display: isOpen ? 'flex' : 'none' }}
     >
+      {/* リサイズハンドル */}
+      <div
+        onMouseDown={handleResizeStart}
+        className={`absolute top-0 left-0 h-full w-1.5 -ml-0.5 cursor-col-resize z-50 hover:bg-blue-500/60 ${
+          isResizing ? 'bg-blue-500/60' : ''
+        }`}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700">
         <div className="flex flex-col min-w-0 flex-1">
