@@ -7,6 +7,7 @@ import type {
   TerminalDataEvent,
   ContextInfo,
   LaunchMode,
+  ClaudeModel,
   NavigationPayload
 } from '../../src/types/ipc'
 
@@ -66,10 +67,11 @@ const api = {
   },
 
   claude: {
-    start: (taskId: string, workdir: string, prompt?: string, cols?: number, rows?: number, launchMode?: LaunchMode): Promise<void> =>
-      ipcRenderer.invoke('claude:start', { taskId, workdir, prompt, cols, rows, launchMode }),
-    resume: (taskId: string, cols?: number, rows?: number, launchMode?: LaunchMode): Promise<void> =>
-      ipcRenderer.invoke('claude:resume', { taskId, cols, rows, launchMode }),
+    start: (taskId: string, workdir: string, prompt?: string, cols?: number, rows?: number, launchMode?: LaunchMode, model?: ClaudeModel): Promise<void> =>
+      ipcRenderer.invoke('claude:start', { taskId, workdir, prompt, cols, rows, launchMode, model }),
+    resume: (taskId: string, cols?: number, rows?: number, launchMode?: LaunchMode, model?: ClaudeModel): Promise<void> =>
+      ipcRenderer.invoke('claude:resume', { taskId, cols, rows, launchMode, model }),
+    listModels: (): Promise<string[]> => ipcRenderer.invoke('claude:list-models'),
     onContextUpdate: (callback: (info: ContextInfo) => void): (() => void) => {
       const listener = (_: IpcRendererEvent, info: ContextInfo): void => callback(info)
       ipcRenderer.on('claude:context-update', listener)

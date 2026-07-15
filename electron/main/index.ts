@@ -13,6 +13,7 @@ import { LocalHttpServer } from './services/LocalHttpServer'
 import { StopHookService } from './services/StopHookService'
 import { ContextLineService } from './services/ContextLineService'
 import { McpServerService } from './services/McpServerService'
+import { ModelListService } from './services/ModelListService'
 import { McpHookService } from './services/McpHookService'
 import { PluginRegistry } from './plugins/PluginRegistry'
 import { PLUGIN_CATALOG } from './plugins/catalog'
@@ -279,6 +280,7 @@ app.whenReady().then(() => {
   registerTaskHandlers(taskService, getSettings, getWindow)
   registerTerminalHandlers(terminalService, getWindow, stopHookService)
   registerGitHandlers(gitService)
+  const modelListService = new ModelListService()
   registerClaudeHandlers(
     claudeService,
     taskService,
@@ -286,7 +288,8 @@ app.whenReady().then(() => {
     terminalService,
     getWindow,
     getSettings,
-    stopHookService
+    stopHookService,
+    modelListService
   )
 
   // Stop Hook IPC handlers

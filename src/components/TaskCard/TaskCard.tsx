@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
 import type { RuntimeTask } from '../../types/task'
-import type { LaunchMode } from '../../types/ipc'
+import type { ClaudeModel, LaunchMode } from '../../types/ipc'
 import { useTaskStore } from '../../stores/taskStore'
 import { useTerminalStore } from '../../stores/terminalStore'
 import ContextMeter from '../ContextMeter/ContextMeter'
@@ -12,6 +12,7 @@ type Props = {
   task: RuntimeTask
   hasFreePane?: boolean
   defaultLaunchMode?: LaunchMode
+  availableModels?: string[]
   onEdit?: (task: RuntimeTask) => void
   onNavigate?: (taskId: string, dir: 'up' | 'down' | 'left' | 'right') => void
 }
@@ -27,25 +28,25 @@ const TYPE_COLORS: Record<string, string> = {
 }
 
 const ALL_LAUNCH_MODES: LaunchMode[] = ['normal', 'auto', 'bypass', 'plan']
+// モデル一覧の取得前・取得失敗時に使うフォールバック
+const FALLBACK_MODELS: string[] = ['opus', 'sonnet', 'haiku']
 
-type SplitButtonProps = {
-  label: string
+type DropdownSelectProps<T extends string> = {
+  value: T
+  options: readonly T[]
   disabled?: boolean
-  disabledTitle?: string
-  colorClass: string
-  defaultMode: LaunchMode
-  onLaunch: (mode: LaunchMode) => void
+  triggerClass: string
+  ariaLabel: string
+  trigger: React.ReactNode
+  onSelect: (value: T) => void
   onKeyDown: (e: React.KeyboardEvent) => void
 }
 
-function SplitButton({ label, disabled, disabledTitle, colorClass, defaultMode, onLaunch, onKeyDown }: SplitButtonProps) {
-  const [selectedMode, setSelectedMode] = useState<LaunchMode>(defaultMode)
+function DropdownSelect<T extends string>({ value, options, disabled, triggerClass, ariaLabel, trigger, onSelect, onKeyDown }: DropdownSelectProps<T>) {
   const [open, setOpen] = useState(false)
   const [dropPos, setDropPos] = useState({ top: 0, left: 0 })
   const triggerRef = useRef<HTMLButtonElement>(null)
   const dropRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => { setSelectedMode(defaultMode) }, [defaultMode])
 
   useLayoutEffect(() => {
     if (!open || !triggerRef.current) return
@@ -71,29 +72,17 @@ function SplitButton({ label, disabled, disabledTitle, colorClass, defaultMode, 
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  const disabledColor = 'bg-gray-600 text-gray-400 cursor-not-allowed'
-  const base = disabled ? disabledColor : colorClass
-
   return (
-    <div className="flex">
-      <button
-        onClick={disabled ? undefined : () => onLaunch(selectedMode)}
-        onKeyDown={onKeyDown}
-        disabled={disabled}
-        title={disabled ? disabledTitle : undefined}
-        className={`px-3 py-1 rounded-l text-xs font-medium ${base}`}
-      >
-        {label}（{selectedMode}）
-      </button>
+    <>
       <button
         ref={triggerRef}
         onClick={disabled ? undefined : () => setOpen((v) => !v)}
         onKeyDown={onKeyDown}
         disabled={disabled}
-        className={`px-1.5 py-1 rounded-r border-l border-black/20 text-xs ${base}`}
-        aria-label="起動モードを選択"
+        className={triggerClass}
+        aria-label={ariaLabel}
       >
-        ▾
+        {trigger}
       </button>
       {open && createPortal(
         <div
@@ -101,22 +90,81 @@ function SplitButton({ label, disabled, disabledTitle, colorClass, defaultMode, 
           style={{ position: 'fixed', top: dropPos.top, left: dropPos.left, zIndex: 9999 }}
           className="bg-gray-900 border border-gray-700 rounded shadow-xl min-w-max"
         >
-          {ALL_LAUNCH_MODES.map((mode) => (
+          {options.map((option) => (
             <button
-              key={mode}
-              onClick={() => { setSelectedMode(mode); setOpen(false) }}
+              key={option}
+              onClick={() => { onSelect(option); setOpen(false) }}
               className={`block w-full text-left px-4 py-1.5 text-xs whitespace-nowrap ${
-                mode === selectedMode
+                option === value
                   ? 'text-white bg-gray-700'
                   : 'text-gray-300 hover:bg-gray-700'
               }`}
             >
-              {mode}
+              {option}
             </button>
           ))}
         </div>,
         document.body
       )}
+    </>
+  )
+}
+
+type SplitButtonProps = {
+  label: string
+  disabled?: boolean
+  disabledTitle?: string
+  colorClass: string
+  defaultMode: LaunchMode
+  models: string[]
+  onLaunch: (mode: LaunchMode, model: ClaudeModel) => void
+  onKeyDown: (e: React.KeyboardEvent) => void
+}
+
+function SplitButton({ label, disabled, disabledTitle, colorClass, defaultMode, models, onLaunch, onKeyDown }: SplitButtonProps) {
+  const [selectedMode, setSelectedMode] = useState<LaunchMode>(defaultMode)
+  const [selectedModel, setSelectedModel] = useState<ClaudeModel>('default')
+  const modelOptions: ClaudeModel[] = ['default', ...models]
+
+  useEffect(() => { setSelectedMode(defaultMode) }, [defaultMode])
+
+  const disabledColor = 'bg-gray-600 text-gray-400 cursor-not-allowed'
+  const base = disabled ? disabledColor : colorClass
+  const modelBase = disabled ? disabledColor : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex">
+        <button
+          onClick={disabled ? undefined : () => onLaunch(selectedMode, selectedModel)}
+          onKeyDown={onKeyDown}
+          disabled={disabled}
+          title={disabled ? disabledTitle : undefined}
+          className={`px-3 py-1 rounded-l text-xs font-medium ${base}`}
+        >
+          {label}（{selectedMode}）
+        </button>
+        <DropdownSelect
+          value={selectedMode}
+          options={ALL_LAUNCH_MODES}
+          disabled={disabled}
+          triggerClass={`px-1.5 py-1 rounded-r border-l border-black/20 text-xs ${base}`}
+          ariaLabel="起動モードを選択"
+          trigger="▾"
+          onSelect={setSelectedMode}
+          onKeyDown={onKeyDown}
+        />
+      </div>
+      <DropdownSelect
+        value={selectedModel}
+        options={modelOptions}
+        disabled={disabled}
+        triggerClass={`px-2 py-1 rounded text-xs ${modelBase}`}
+        ariaLabel="モデルを選択"
+        trigger={`${selectedModel} ▾`}
+        onSelect={setSelectedModel}
+        onKeyDown={onKeyDown}
+      />
     </div>
   )
 }
@@ -159,7 +207,8 @@ function DoneDetail({ task, onButtonKeyDown }: { task: RuntimeTask; onButtonKeyD
   )
 }
 
-export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode = 'normal', onEdit, onNavigate }: Props) {
+export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode = 'normal', availableModels, onEdit, onNavigate }: Props) {
+  const models = availableModels && availableModels.length > 0 ? availableModels : FALLBACK_MODELS
   const tasks = useTaskStore((s) => s.tasks)
   const startTask = useTaskStore((s) => s.startTask)
   const resumeTask = useTaskStore((s) => s.resumeTask)
@@ -178,10 +227,10 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
   const paneBlocked = task.type !== 'chore' && task.type !== 'orchestrate' && !hasFreePane
   const effectiveDefaultMode: LaunchMode = task.type === 'research' ? 'plan' : defaultLaunchMode
 
-  const handleStart = async (launchMode?: LaunchMode) => {
+  const handleStart = async (launchMode?: LaunchMode, model?: ClaudeModel) => {
     setStartError(null)
     try {
-      await startTask(task.id, launchMode)
+      await startTask(task.id, launchMode, model)
       openTerminal(task.id)
     } catch (err) {
       setStartError((err as Error).message)
@@ -202,10 +251,10 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
     await updateTask(task.id, { status: 'will_do', completedAt: null, startedAt: null })
   }
 
-  const handleResume = async (launchMode?: LaunchMode) => {
+  const handleResume = async (launchMode?: LaunchMode, model?: ClaudeModel) => {
     setStartError(null)
     try {
-      await resumeTask(task.id, launchMode)
+      await resumeTask(task.id, launchMode, model)
       openTerminal(task.id)
     } catch (err) {
       setStartError((err as Error).message)
@@ -291,7 +340,8 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
                 disabledTitle={depBlocked ? '依存タスクが未完了です' : paneBlocked ? '空きペインがありません' : undefined}
                 colorClass="bg-blue-600 hover:bg-blue-700 text-white"
                 defaultMode={effectiveDefaultMode}
-                onLaunch={(mode) => handleStart(mode)}
+                models={models}
+                onLaunch={(mode, model) => handleStart(mode, model)}
                 onKeyDown={handleButtonKeyDown}
               />
               <button
@@ -481,7 +531,8 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
                   disabledTitle="空きペインがありません"
                   colorClass="bg-indigo-600 hover:bg-indigo-700 text-white"
                   defaultMode={effectiveDefaultMode}
-                  onLaunch={(mode) => handleResume(mode)}
+                  models={models}
+                  onLaunch={(mode, model) => handleResume(mode, model)}
                   onKeyDown={handleButtonKeyDown}
                 />
               )}

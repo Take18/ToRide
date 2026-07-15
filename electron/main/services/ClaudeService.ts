@@ -1,7 +1,7 @@
 import { Notification, type BrowserWindow } from 'electron'
 import type { TerminalService } from './TerminalService'
 import type { ContextLineService } from './ContextLineService'
-import type { AppSettings, ContextInfo, LaunchMode } from '../../../src/types/ipc'
+import type { AppSettings, ClaudeModel, ContextInfo, LaunchMode } from '../../../src/types/ipc'
 
 export type ContextUpdateCallback = (info: ContextInfo) => void
 
@@ -31,7 +31,7 @@ export class ClaudeService {
     })
   }
 
-  start(taskId: string, workdir: string, prompt?: string, launchMode?: LaunchMode, cols?: number, rows?: number, sessionId?: string, resumeSessionId?: string): void {
+  start(taskId: string, workdir: string, prompt?: string, launchMode?: LaunchMode, cols?: number, rows?: number, sessionId?: string, resumeSessionId?: string, model?: ClaudeModel): void {
     this.terminalService.start(taskId, workdir, cols ?? 120, rows ?? 30, { CLAUDE_TASK_ID: taskId })
     let claudeArgs = ''
     if (launchMode === 'bypass') {
@@ -41,6 +41,7 @@ export class ClaudeService {
     } else if (launchMode === 'plan') {
       claudeArgs += ' --permission-mode plan'
     }
+    if (model && model !== 'default') claudeArgs += ` --model ${model}`
     if (resumeSessionId) claudeArgs += ` --resume ${resumeSessionId}`
     else if (sessionId) claudeArgs += ` --session-id ${sessionId}`
     const claudeCmd = `claude${claudeArgs}\n`

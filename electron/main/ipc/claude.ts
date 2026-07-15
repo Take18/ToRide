@@ -7,7 +7,8 @@ import type { TaskService } from '../services/TaskService'
 import type { GitService } from '../services/GitService'
 import type { TerminalService } from '../services/TerminalService'
 import type { StopHookService } from '../services/StopHookService'
-import type { AppSettings, LaunchMode } from '../../../src/types/ipc'
+import type { ModelListService } from '../services/ModelListService'
+import type { AppSettings, ClaudeModel, LaunchMode } from '../../../src/types/ipc'
 import type { Task } from '../../../src/types/task'
 
 const DEFAULT_ORCHESTRATE_SYSTEM_PROMPT = `あなたはタスクオーケストレーターです。ToRide MCPツールを使ってミッションを自律的に実行してください。
@@ -83,9 +84,9 @@ type StartTaskDeps = {
   stopHookService?: StopHookService
 }
 
-export function createStartTaskFn(deps: StartTaskDeps): (taskId: string, launchMode?: LaunchMode) => Promise<void> {
+export function createStartTaskFn(deps: StartTaskDeps): (taskId: string, launchMode?: LaunchMode, model?: ClaudeModel) => Promise<void> {
   const { claudeService, taskService, gitService, terminalService, getWindow, getSettings, stopHookService } = deps
-  return async (taskId: string, launchMode?: LaunchMode) => {
+  return async (taskId: string, launchMode?: LaunchMode, model?: ClaudeModel) => {
     const tasks = taskService.list()
     const task = tasks.find((t) => t.id === taskId)
     if (!task) throw new Error(`Task not found: ${taskId}`)
@@ -138,7 +139,7 @@ export function createStartTaskFn(deps: StartTaskDeps): (taskId: string, launchM
       const taskPrompt = rawPrompt ? (task.type === 'orchestrate' ? rawPrompt : interpolateTemplate(rawPrompt, task)) : undefined
       const effectiveLaunchMode = resolveLaunchMode(launchMode, task.type === 'research', settings)
       const sessionId = randomUUID()
-      claudeService.start(taskId, resolvedWorkdir, taskPrompt, effectiveLaunchMode, undefined, undefined, sessionId)
+      claudeService.start(taskId, resolvedWorkdir, taskPrompt, effectiveLaunchMode, undefined, undefined, sessionId, undefined, model)
       taskService.update(taskId, { sessionId })
 
       if (stopHookService) {
@@ -198,13 +199,18 @@ export function registerClaudeHandlers(
   terminalService: TerminalService,
   getWindow: () => BrowserWindow | null,
   getSettings: () => AppSettings,
-  stopHookService?: StopHookService
+  stopHookService?: StopHookService,
+  modelListService?: ModelListService
 ): void {
+  if (modelListService) {
+    ipcMain.handle('claude:list-models', () => modelListService.listModels())
+  }
+
   ipcMain.handle(
     'claude:start',
     async (
       _,
-      { taskId, workdir, prompt, cols, rows, launchMode }: { taskId: string; workdir: string; prompt?: string; cols?: number; rows?: number; launchMode?: LaunchMode }
+      { taskId, workdir, prompt, cols, rows, launchMode, model }: { taskId: string; workdir: string; prompt?: string; cols?: number; rows?: number; launchMode?: LaunchMode; model?: ClaudeModel }
     ) => {
       try {
         const tasks = taskService.list()
@@ -275,7 +281,7 @@ export function registerClaudeHandlers(
           const taskPrompt = rawPrompt ? (task.type === 'orchestrate' ? rawPrompt : interpolateTemplate(rawPrompt, task)) : undefined
           const effectiveLaunchMode = resolveLaunchMode(launchMode, task.type === 'research', settings)
           const sessionId = randomUUID()
-          claudeService.start(taskId, resolvedWorkdir, taskPrompt, effectiveLaunchMode, cols, rows, sessionId)
+          claudeService.start(taskId, resolvedWorkdir, taskPrompt, effectiveLaunchMode, cols, rows, sessionId, undefined, model)
           taskService.update(taskId, { sessionId })
 
           // Stop Hook: タスク完了通知コールバック登録（自動遷移しない）
@@ -350,7 +356,7 @@ export function registerClaudeHandlers(
     'claude:resume',
     async (
       _,
-      { taskId, cols, rows, launchMode }: { taskId: string; cols?: number; rows?: number; launchMode?: LaunchMode }
+      { taskId, cols, rows, launchMode, model }: { taskId: string; cols?: number; rows?: number; launchMode?: LaunchMode; model?: ClaudeModel }
     ) => {
       try {
         const tasks = taskService.list()
@@ -417,7 +423,7 @@ export function registerClaudeHandlers(
           getWindow()?.webContents.send('terminal:reset', taskId)
 
           const effectiveLaunchMode = resolveLaunchMode(launchMode, task.type === 'research', settings)
-          claudeService.start(taskId, resolvedWorkdir, undefined, effectiveLaunchMode, cols, rows, undefined, sessionId)
+          claudeService.start(taskId, resolvedWorkdir, undefined, effectiveLaunchMode, cols, rows, undefined, sessionId, model)
 
           if (stopHookService) {
             stopHookService.onTaskComplete(taskId, async () => {
