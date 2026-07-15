@@ -29,25 +29,22 @@ const TYPE_COLORS: Record<string, string> = {
 const ALL_LAUNCH_MODES: LaunchMode[] = ['normal', 'auto', 'bypass', 'plan']
 const ALL_MODELS: ClaudeModel[] = ['default', 'opus', 'sonnet', 'haiku']
 
-type SplitButtonProps = {
-  label: string
+type DropdownSelectProps<T extends string> = {
+  value: T
+  options: readonly T[]
   disabled?: boolean
-  disabledTitle?: string
-  colorClass: string
-  defaultMode: LaunchMode
-  onLaunch: (mode: LaunchMode, model: ClaudeModel) => void
+  triggerClass: string
+  ariaLabel: string
+  trigger: React.ReactNode
+  onSelect: (value: T) => void
   onKeyDown: (e: React.KeyboardEvent) => void
 }
 
-function SplitButton({ label, disabled, disabledTitle, colorClass, defaultMode, onLaunch, onKeyDown }: SplitButtonProps) {
-  const [selectedMode, setSelectedMode] = useState<LaunchMode>(defaultMode)
-  const [selectedModel, setSelectedModel] = useState<ClaudeModel>('default')
+function DropdownSelect<T extends string>({ value, options, disabled, triggerClass, ariaLabel, trigger, onSelect, onKeyDown }: DropdownSelectProps<T>) {
   const [open, setOpen] = useState(false)
   const [dropPos, setDropPos] = useState({ top: 0, left: 0 })
   const triggerRef = useRef<HTMLButtonElement>(null)
   const dropRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => { setSelectedMode(defaultMode) }, [defaultMode])
 
   useLayoutEffect(() => {
     if (!open || !triggerRef.current) return
@@ -73,6 +70,60 @@ function SplitButton({ label, disabled, disabledTitle, colorClass, defaultMode, 
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        onClick={disabled ? undefined : () => setOpen((v) => !v)}
+        onKeyDown={onKeyDown}
+        disabled={disabled}
+        className={triggerClass}
+        aria-label={ariaLabel}
+      >
+        {trigger}
+      </button>
+      {open && createPortal(
+        <div
+          ref={dropRef}
+          style={{ position: 'fixed', top: dropPos.top, left: dropPos.left, zIndex: 9999 }}
+          className="bg-gray-900 border border-gray-700 rounded shadow-xl min-w-max"
+        >
+          {options.map((option) => (
+            <button
+              key={option}
+              onClick={() => { onSelect(option); setOpen(false) }}
+              className={`block w-full text-left px-4 py-1.5 text-xs whitespace-nowrap ${
+                option === value
+                  ? 'text-white bg-gray-700'
+                  : 'text-gray-300 hover:bg-gray-700'
+              }`}
+            >
+              {option}
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
+    </>
+  )
+}
+
+type SplitButtonProps = {
+  label: string
+  disabled?: boolean
+  disabledTitle?: string
+  colorClass: string
+  defaultMode: LaunchMode
+  onLaunch: (mode: LaunchMode, model: ClaudeModel) => void
+  onKeyDown: (e: React.KeyboardEvent) => void
+}
+
+function SplitButton({ label, disabled, disabledTitle, colorClass, defaultMode, onLaunch, onKeyDown }: SplitButtonProps) {
+  const [selectedMode, setSelectedMode] = useState<LaunchMode>(defaultMode)
+  const [selectedModel, setSelectedModel] = useState<ClaudeModel>('default')
+
+  useEffect(() => { setSelectedMode(defaultMode) }, [defaultMode])
+
   const disabledColor = 'bg-gray-600 text-gray-400 cursor-not-allowed'
   const base = disabled ? disabledColor : colorClass
 
@@ -85,55 +136,28 @@ function SplitButton({ label, disabled, disabledTitle, colorClass, defaultMode, 
         title={disabled ? disabledTitle : undefined}
         className={`px-3 py-1 rounded-l text-xs font-medium ${base}`}
       >
-        {label}（{selectedMode}{selectedModel !== 'default' ? ` / ${selectedModel}` : ''}）
+        {label}（{selectedMode}）
       </button>
-      <button
-        ref={triggerRef}
-        onClick={disabled ? undefined : () => setOpen((v) => !v)}
-        onKeyDown={onKeyDown}
+      <DropdownSelect
+        value={selectedMode}
+        options={ALL_LAUNCH_MODES}
         disabled={disabled}
-        className={`px-1.5 py-1 rounded-r border-l border-black/20 text-xs ${base}`}
-        aria-label="起動モードを選択"
-      >
-        ▾
-      </button>
-      {open && createPortal(
-        <div
-          ref={dropRef}
-          style={{ position: 'fixed', top: dropPos.top, left: dropPos.left, zIndex: 9999 }}
-          className="bg-gray-900 border border-gray-700 rounded shadow-xl min-w-max"
-        >
-          <div className="px-3 pt-1.5 pb-0.5 text-[10px] text-gray-500">起動モード</div>
-          {ALL_LAUNCH_MODES.map((mode) => (
-            <button
-              key={mode}
-              onClick={() => { setSelectedMode(mode); setOpen(false) }}
-              className={`block w-full text-left px-4 py-1.5 text-xs whitespace-nowrap ${
-                mode === selectedMode
-                  ? 'text-white bg-gray-700'
-                  : 'text-gray-300 hover:bg-gray-700'
-              }`}
-            >
-              {mode}
-            </button>
-          ))}
-          <div className="px-3 pt-1.5 pb-0.5 text-[10px] text-gray-500 border-t border-gray-700">モデル</div>
-          {ALL_MODELS.map((model) => (
-            <button
-              key={model}
-              onClick={() => { setSelectedModel(model); setOpen(false) }}
-              className={`block w-full text-left px-4 py-1.5 text-xs whitespace-nowrap ${
-                model === selectedModel
-                  ? 'text-white bg-gray-700'
-                  : 'text-gray-300 hover:bg-gray-700'
-              }`}
-            >
-              {model}
-            </button>
-          ))}
-        </div>,
-        document.body
-      )}
+        triggerClass={`px-1.5 py-1 border-l border-black/20 text-xs ${base}`}
+        ariaLabel="起動モードを選択"
+        trigger="▾"
+        onSelect={setSelectedMode}
+        onKeyDown={onKeyDown}
+      />
+      <DropdownSelect
+        value={selectedModel}
+        options={ALL_MODELS}
+        disabled={disabled}
+        triggerClass={`px-2 py-1 rounded-r border-l border-black/20 text-xs ${base}`}
+        ariaLabel="モデルを選択"
+        trigger={`${selectedModel} ▾`}
+        onSelect={setSelectedModel}
+        onKeyDown={onKeyDown}
+      />
     </div>
   )
 }
