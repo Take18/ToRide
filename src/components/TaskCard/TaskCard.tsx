@@ -333,7 +333,7 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
               <p className="text-xs text-red-400 mb-2 break-all">{startError}</p>
             )}
 
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex flex-wrap items-center gap-2 mt-2 whitespace-nowrap">
               <SplitButton
                 label="開始"
                 disabled={depBlocked || paneBlocked}
@@ -435,7 +435,7 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
               limit={task.contextLimit}
             />
 
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex flex-wrap items-center gap-2 mt-2 whitespace-nowrap">
               <button
                 onClick={() => openTerminal(task.id)}
                 onKeyDown={handleButtonKeyDown}
@@ -493,7 +493,7 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
               </p>
             )}
             <DoneDetail task={task} onButtonKeyDown={handleButtonKeyDown} />
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex flex-wrap items-center gap-2 mt-2 whitespace-nowrap">
               {task.type === 'review' && 'url' in task && (
                 <div className="flex items-center gap-2">
                   <button
