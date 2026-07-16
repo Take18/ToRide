@@ -313,11 +313,11 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
         }`}
       >
         {/* Type badge + Title */}
-        <div className="flex items-center gap-2 mb-2">
-          <span className={`text-xs px-2 py-0.5 rounded text-white font-medium ${TYPE_COLORS[task.type]}`}>
+        <div className="flex items-start gap-2 mb-2">
+          <span className={`text-xs px-2 py-0.5 rounded text-white font-medium shrink-0 ${TYPE_COLORS[task.type]}`}>
             {task.type}
           </span>
-          <span className="text-sm font-medium text-white truncate" title={task.title}>{task.title}</span>
+          <span className="text-sm font-medium text-white line-clamp-2 break-all" title={task.title}>{task.title}</span>
         </div>
 
         {/* will_do card */}
