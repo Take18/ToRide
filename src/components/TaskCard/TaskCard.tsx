@@ -409,9 +409,11 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
         {task.status === 'doing' && (
           <div className="space-y-2">
             <div className="text-xs text-gray-400">
-              Pane: <span className="text-gray-300 font-mono">{task.pane}</span>
+              {task.pane && (
+                <>Pane: <span className="text-gray-300 font-mono">{task.pane}</span></>
+              )}
               {task.workdir && (
-                <span className="text-gray-500"> → {task.workdir}</span>
+                <span className="text-gray-500">{task.pane ? ' → ' : ''}{task.workdir}</span>
               )}
             </div>
 

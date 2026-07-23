@@ -98,11 +98,11 @@ export function createStartTaskFn(deps: StartTaskDeps): (taskId: string, launchM
     if (task.type === 'chore' && 'directory' in task) {
       resolvedWorkdir = expandPath(task.directory)
     } else if (task.type === 'orchestrate') {
+      // orchestrate はコーディネーター役なのでペインを占有しない（workdir だけ先頭ペインから借りる）
       const repoId = 'repoId' in task ? (task as { repoId?: string }).repoId : undefined
       const repo = repoId ? settings.repos.find((r) => r.id === repoId) : settings.repos[0]
-      const pane = repo?.panes[0]
-      resolvedWorkdir = expandPath(pane?.path ?? homedir())
-      if (pane) assignedPane = pane.id
+      resolvedWorkdir = expandPath(repo?.panes[0]?.path ?? homedir())
+      assignedPane = ''
     } else {
       const repoId = 'repoId' in task ? task.repoId : undefined
       const repo = repoId ? settings.repos.find((r) => r.id === repoId) : settings.repos[0]
@@ -226,11 +226,11 @@ export function registerClaudeHandlers(
         if (task.type === 'chore' && 'directory' in task) {
           resolvedWorkdir = expandPath(task.directory)
         } else if (task.type === 'orchestrate') {
+          // orchestrate はコーディネーター役なのでペインを占有しない（workdir だけ先頭ペインから借りる）
           const repoId = 'repoId' in task ? (task as { repoId?: string }).repoId : undefined
           const repo = repoId ? settings.repos.find((r) => r.id === repoId) : settings.repos[0]
-          const pane = repo?.panes[0]
-          resolvedWorkdir = expandPath(pane?.path ?? homedir())
-          if (pane) assignedPane = pane.id
+          resolvedWorkdir = expandPath(repo?.panes[0]?.path ?? homedir())
+          assignedPane = ''
         } else {
           // non-chore: タスクのリポジトリ内の空きペインを自動割り当て
           const repoId = 'repoId' in task ? task.repoId : undefined
@@ -376,6 +376,13 @@ export function registerClaudeHandlers(
 
         if (task.type === 'chore' && 'directory' in task) {
           resolvedWorkdir = expandPath(task.directory)
+        } else if (task.type === 'orchestrate') {
+          // orchestrate はペインを占有しない。起動時と同じ先頭ペインのパスで再開する
+          // （claude --resume は起動ディレクトリでセッションを検索するため）
+          const repoId = 'repoId' in task ? (task as { repoId?: string }).repoId : undefined
+          const repo = repoId ? settings.repos.find((r) => r.id === repoId) : settings.repos[0]
+          resolvedWorkdir = expandPath(repo?.panes[0]?.path ?? homedir())
+          assignedPane = ''
         } else {
           const repoId = 'repoId' in task ? task.repoId : undefined
           const repo = repoId
