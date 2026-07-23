@@ -12,4 +12,4 @@
 ### Other Changes
 - 
 
-**Full Changelog**: https://github.com/take-tomoaki-ab/ToRide/compare/PREV_TAG...NEXT_TAG
+**Full Changelog**: https://github.com/Take18/ToRide/compare/PREV_TAG...NEXT_TAG
