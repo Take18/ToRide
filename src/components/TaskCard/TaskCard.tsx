@@ -313,11 +313,11 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
         }`}
       >
         {/* Type badge + Title */}
-        <div className="flex items-center gap-2 mb-2">
-          <span className={`text-xs px-2 py-0.5 rounded text-white font-medium ${TYPE_COLORS[task.type]}`}>
+        <div className="flex items-start gap-2 mb-2">
+          <span className={`text-xs px-2 py-0.5 rounded text-white font-medium shrink-0 ${TYPE_COLORS[task.type]}`}>
             {task.type}
           </span>
-          <span className="text-sm font-medium text-white truncate" title={task.title}>{task.title}</span>
+          <span className="text-sm font-medium text-white line-clamp-2 break-all" title={task.title}>{task.title}</span>
         </div>
 
         {/* will_do card */}
@@ -333,7 +333,7 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
               <p className="text-xs text-red-400 mb-2 break-all">{startError}</p>
             )}
 
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex flex-wrap items-center gap-2 mt-2 whitespace-nowrap">
               <SplitButton
                 label="開始"
                 disabled={depBlocked || paneBlocked}
@@ -435,7 +435,7 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
               limit={task.contextLimit}
             />
 
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex flex-wrap items-center gap-2 mt-2 whitespace-nowrap">
               <button
                 onClick={() => openTerminal(task.id)}
                 onKeyDown={handleButtonKeyDown}
@@ -493,7 +493,7 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
               </p>
             )}
             <DoneDetail task={task} onButtonKeyDown={handleButtonKeyDown} />
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex flex-wrap items-center gap-2 mt-2 whitespace-nowrap">
               {task.type === 'review' && 'url' in task && (
                 <div className="flex items-center gap-2">
                   <button
