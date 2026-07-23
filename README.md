@@ -369,13 +369,13 @@ cp settings.example.json my-settings.json
               "label": "Dev",
               "command": "npm",
               "args": ["run", "dev"],
-              "port": 3000
+              "url": "3000"
             },
             {
               "label": "Storybook",
               "command": "npm",
               "args": ["run", "storybook"],
-              "port": 6006
+              "url": "https://localhost.example.test:6006"
             }
           ]
         },
@@ -433,7 +433,7 @@ cp settings.example.json my-settings.json
 | `repos[].panes` | `PaneConfig[]` | このリポジトリに属する pane の配列 |
 | `repos[].panes[].id` | `string` | pane 識別子（例: `"p1"`） |
 | `repos[].panes[].path` | `string` | 作業ディレクトリの絶対パス（ワークツリーパス可） |
-| `repos[].panes[].devServers` | `DevServer[]` | 開発サーバー定義（label / command / args / port） |
+| `repos[].panes[].devServers` | `DevServer[]` | 開発サーバー定義（label / command / args / url）。`url` はポート番号（`"3000"` → `http://localhost:3000`）またはローカル環境のURL（`https://localhost.example.test:3000` など）を指定 |
 | `githubPat` | `string` | GitHub Personal Access Token（暗号化保存）。Classic PAT なら `repo` スコープ、Fine-grained PAT なら Pull requests / Metadata の Read-only が必要 |
 | `githubUsername` | `string` | GitHub ユーザー名（PR 自動同期用） |
 | `githubPrSyncIntervalMin` | `number` | PR 自動同期間隔（分、デフォルト `5`） |

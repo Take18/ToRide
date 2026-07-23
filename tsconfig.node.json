@@ -4,7 +4,8 @@
     "electron.vite.config.*",
     "electron/**/*",
     "electron/**/*.d.ts",
-    "src/types/**/*"
+    "src/types/**/*",
+    "src/utils/**/*"
   ],
   "compilerOptions": {
     "composite": true,
