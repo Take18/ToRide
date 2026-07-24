@@ -54,6 +54,11 @@ export function initDatabase(): Database.Database {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS dismissed_prs (
+      url TEXT PRIMARY KEY,
+      dismissed_at TEXT NOT NULL
+    );
   `)
 
   return db

@@ -129,6 +129,7 @@ export type IpcChannels = {
 
   // GitHub
   'github:sync-prs': [void, { created: number; total: number }]
+  'github:dismiss-pr': [string, void]
 
   // Ticket
   'ticket:fetch': [string, TicketFetchResult]
@@ -217,6 +218,7 @@ export type WindowApi = {
   }
   github: {
     syncPRs: () => Promise<{ created: number; total: number }>
+    dismissPr: (taskId: string) => Promise<void>
   }
   ticket: {
     fetch: (url: string) => Promise<TicketFetchResult>

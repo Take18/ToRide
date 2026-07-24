@@ -12,6 +12,7 @@ type TaskStore = {
   createTask: (task: DistributiveOmit<Task, 'id' | 'created_at'>) => Promise<void>
   updateTask: (id: string, data: Partial<Task & RuntimeTaskState>) => Promise<void>
   deleteTask: (id: string) => Promise<void>
+  dismissTask: (id: string) => Promise<void>
   archiveTask: (id: string) => Promise<void>
   archiveAllDone: () => Promise<void>
   restoreArchived: (id: string) => Promise<void>
@@ -64,6 +65,11 @@ export const useTaskStore = create<TaskStore>((set, get) => ({
 
   deleteTask: async (id) => {
     await window.api.tasks.delete(id)
+    await get().fetchTasks()
+  },
+
+  dismissTask: async (id) => {
+    await window.api.github.dismissPr(id)
     await get().fetchTasks()
   },
 
