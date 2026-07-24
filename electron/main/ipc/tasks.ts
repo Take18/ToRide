@@ -1,4 +1,5 @@
 import { ipcMain, Notification, type BrowserWindow } from 'electron'
+import { deleteImages } from '../services/ImageStore'
 import type { TaskService } from '../services/TaskService'
 import type { AppSettings } from '../../../src/types/ipc'
 import type { Task, RuntimeTaskState } from '../../../src/types/task'
@@ -64,7 +65,9 @@ export function registerTaskHandlers(
 
   ipcMain.handle('tasks:delete', async (_, id: string) => {
     try {
+      const task = taskService.list().find((t) => t.id === id)
       taskService.delete(id)
+      if (task?.images?.length) deleteImages(task.images)
     } catch (error) {
       throw new Error(`Failed to delete task: ${(error as Error).message}`)
     }
@@ -88,7 +91,9 @@ export function registerTaskHandlers(
 
   ipcMain.handle('tasks:delete-archived', async (_, id: string) => {
     try {
+      const entry = taskService.listArchived().find((e) => e.id === id)
       taskService.deleteArchived(id)
+      if (entry?.task_data.images?.length) deleteImages(entry.task_data.images)
     } catch (error) {
       throw new Error(`Failed to delete archived task: ${(error as Error).message}`)
     }
@@ -104,7 +109,10 @@ export function registerTaskHandlers(
 
   ipcMain.handle('tasks:delete-all-archived', async () => {
     try {
-      return taskService.deleteAllArchived()
+      const images = taskService.listArchived().flatMap((e) => e.task_data.images ?? [])
+      const count = taskService.deleteAllArchived()
+      if (images.length) deleteImages(images)
+      return count
     } catch (error) {
       throw new Error(`Failed to delete all archived tasks: ${(error as Error).message}`)
     }

@@ -14,6 +14,7 @@ export type BaseTask = {
   created_at?: string
   sessionId?: string  // Claude session ID (for --resume)
   prUrl?: string      // GitHub PR URL (auto-detected from terminal output)
+  images?: string[]   // 添付画像の保存先パス（userData/task-images 配下）
 }
 
 export type DesignTask = {

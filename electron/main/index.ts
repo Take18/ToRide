@@ -15,6 +15,7 @@ import { ContextLineService } from './services/ContextLineService'
 import { McpServerService } from './services/McpServerService'
 import { ModelListService } from './services/ModelListService'
 import { McpHookService } from './services/McpHookService'
+import { importImages, deleteImages } from './services/ImageStore'
 import { PluginRegistry } from './plugins/PluginRegistry'
 import { PLUGIN_CATALOG } from './plugins/catalog'
 import { registerTaskHandlers } from './ipc/tasks'
@@ -368,6 +369,25 @@ app.whenReady().then(() => {
       properties: ['openDirectory']
     })
     return result.canceled ? null : result.filePaths[0]
+  })
+
+  // 画像選択ダイアログ（複数選択可）
+  ipcMain.handle('dialog:open-images', async (): Promise<string[] | null> => {
+    if (!mainWindow) return null
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp'] }]
+    })
+    return result.canceled ? null : result.filePaths
+  })
+
+  // 添付画像の取り込み・削除
+  ipcMain.handle('images:import', async (_, sourcePaths: string[]): Promise<string[]> => {
+    return importImages(sourcePaths)
+  })
+
+  ipcMain.handle('images:delete', async (_, paths: string[]): Promise<void> => {
+    deleteImages(paths)
   })
 
   // 設定エクスポート
