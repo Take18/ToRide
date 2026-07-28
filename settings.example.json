@@ -8,13 +8,13 @@
           "label": "Dev",
           "command": "npm",
           "args": ["run", "dev"],
-          "port": 3000
+          "url": "3000"
         },
         {
           "label": "Storybook",
           "command": "npm",
           "args": ["run", "storybook"],
-          "port": 6006
+          "url": "https://localhost.example.test:6006"
         }
       ]
     },

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import type { RepoConfig, PaneConfig, DevServerStatus } from '../../types/ipc'
 import { useTerminalStore } from '../../stores/terminalStore'
 import { useTaskStore } from '../../stores/taskStore'
+import { resolveDevServerUrl } from '../../utils/devServerUrl'
 
 export default function PaneStatusSidebar() {
   const [repos, setRepos] = useState<RepoConfig[]>([])
@@ -118,6 +119,7 @@ export default function PaneStatusSidebar() {
             {serversToShow.map((ds) => {
               const status = getServerStatus(repoId, pane.id, ds.label)
               const running = status?.running ?? false
+              const serverUrl = resolveDevServerUrl(ds.url)
               return (
                 <div
                   key={ds.label}
@@ -126,7 +128,7 @@ export default function PaneStatusSidebar() {
                   <button
                     className="flex items-center gap-1.5 flex-1 cursor-pointer text-left"
                     onClick={() => toggleServer(repoId, pane.id, ds.label)}
-                    title={status?.port ? `Port: ${status.port} — クリックで${running ? '停止' : '起動'}` : `クリックで${running ? '停止' : '起動'}`}
+                    title={serverUrl ? `${serverUrl} — クリックで${running ? '停止' : '起動'}` : `クリックで${running ? '停止' : '起動'}`}
                   >
                     <span className={running ? 'text-green-400' : 'text-gray-500'}>
                       {running ? '\u25CF' : '\u25CB'}
@@ -135,11 +137,11 @@ export default function PaneStatusSidebar() {
                       {ds.label}
                     </span>
                   </button>
-                  {running && status?.port && (
+                  {running && serverUrl && (
                     <button
                       className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-blue-400 px-1 transition-opacity"
-                      onClick={() => window.api.shell.openExternal(`http://localhost:${status.port}`)}
-                      title={`http://localhost:${status.port} をブラウザで開く`}
+                      onClick={() => window.api.shell.openExternal(serverUrl)}
+                      title={`${serverUrl} をブラウザで開く`}
                     >
                       <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
                         <path d="M6 2H2a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-4h-2v3H3V4h3V2zm4 0v2h2.586L7.293 9.293l1.414 1.414L14 5.414V8h2V2h-6z"/>

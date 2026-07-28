@@ -564,12 +564,13 @@ export default function SettingsPage() {
                             className={`${inputClass} flex-[3] min-w-0`}
                           />
                           <input
-                            type="number"
-                            value={ds.port ?? ''}
+                            type="text"
+                            value={ds.url ?? ''}
                             onChange={(e) =>
-                              updateDevServer(ri, pi, di, { port: e.target.value ? Number(e.target.value) : undefined })
+                              updateDevServer(ri, pi, di, { url: e.target.value || undefined })
                             }
-                            placeholder="Port"
+                            placeholder="Port / URL"
+                            title="ポート番号（例: 3000）またはローカル環境のURL（例: https://localhost.example.test:3000）"
                             className={`${inputClass} flex-[2] min-w-0`}
                           />
                           <button

@@ -65,6 +65,21 @@ function getSettings(): AppSettings {
     delete raw.panes
   }
 
+  // 旧 devServers[].port（数値）→ url（文字列）へのマイグレーション
+  if (raw.repos) {
+    for (const repo of raw.repos as import('../../src/types/ipc').RepoConfig[]) {
+      for (const pane of repo.panes ?? []) {
+        for (const ds of pane.devServers ?? []) {
+          const legacy = ds as { port?: number; url?: string }
+          if (legacy.port !== undefined && legacy.url === undefined) {
+            legacy.url = String(legacy.port)
+          }
+          delete legacy.port
+        }
+      }
+    }
+  }
+
   // 旧 wrikeAccessToken/wrikeItemTypeFeatId/wrikeItemTypeBugfixId → pluginSettings.wrike へのマイグレーション
   if (raw.wrikeAccessToken !== undefined || raw.wrikeItemTypeFeatId !== undefined) {
     if (!raw.pluginSettings) raw.pluginSettings = {}

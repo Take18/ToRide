@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'child_process'
 import { existsSync } from 'fs'
 import type { DevServerConfig, PaneConfig, DevServerStatus } from '../../../src/types/ipc'
 import { expandPath } from '../utils/path'
+import { resolveDevServerUrl } from '../../../src/utils/devServerUrl'
 
 export type DevServerChangeCallback = (statuses: DevServerStatus[]) => void
 export type AbnormalExitCallback = (info: { repoId: string; paneId: string; label: string }) => void
@@ -132,7 +133,7 @@ export class DevServerService {
         label: config.serverConfig.label,
         running: !!child,
         pid: child?.pid,
-        port: config.serverConfig.port
+        url: resolveDevServerUrl(config.serverConfig.url)
       })
     }
 

@@ -6,7 +6,8 @@ export type DevServerConfig = {
   label: string
   command: string
   args: string[]
-  port?: number
+  // ポート番号（例: "3000"）またはローカル環境のURL（例: "https://localhost.example.test:3000"）
+  url?: string
 }
 
 export type PaneConfig = {
@@ -63,7 +64,7 @@ export type DevServerStatus = {
   label: string
   running: boolean
   pid?: number
-  port?: number
+  url?: string  // resolveDevServerUrl で解決済みのURL
 }
 
 // Terminal data event

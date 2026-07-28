@@ -6,6 +6,7 @@ import type { TaskService } from './TaskService.js'
 import type { DevServerService } from './DevServerService.js'
 import type { Task } from '../../../src/types/task.js'
 import type { AppSettings, ClaudeModel, LaunchMode } from '../../../src/types/ipc.js'
+import { resolveDevServerUrl } from '../../../src/utils/devServerUrl.js'
 
 export class McpServerService {
   constructor(
@@ -249,7 +250,7 @@ export class McpServerService {
                       runningTaskId: runningTask?.id ?? null,
                       runningTaskTitle: runningTask?.title ?? null,
                       label: server.label,
-                      port: server.port,
+                      url: resolveDevServerUrl(server.url) ?? null,
                       running: status?.running ?? false,
                       pid: status?.pid,
                     }
