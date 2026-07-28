@@ -112,7 +112,16 @@ const api = {
 
   dialog: {
     openDirectory: (): Promise<string | null> =>
-      ipcRenderer.invoke('dialog:open-directory')
+      ipcRenderer.invoke('dialog:open-directory'),
+    openImages: (): Promise<string[] | null> =>
+      ipcRenderer.invoke('dialog:open-images')
+  },
+
+  images: {
+    import: (sourcePaths: string[]): Promise<string[]> =>
+      ipcRenderer.invoke('images:import', sourcePaths),
+    delete: (paths: string[]): Promise<void> =>
+      ipcRenderer.invoke('images:delete', paths)
   },
 
   github: {

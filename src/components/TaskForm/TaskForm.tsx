@@ -22,7 +22,8 @@ const INITIAL_FORM = {
   depends_on: '',
   url: '',
   output: '',
-  directory: ''
+  directory: '',
+  images: [] as string[]
 }
 
 function taskToForm(task: RuntimeTask) {
@@ -37,7 +38,8 @@ function taskToForm(task: RuntimeTask) {
     prompt: task.prompt ?? '',
     url: 'url' in task ? (task.url ?? '') : '',
     output: 'output' in task ? (task.output ?? '') : '',
-    directory: 'directory' in task ? (task.directory ?? '') : ''
+    directory: 'directory' in task ? (task.directory ?? '') : '',
+    images: task.images ?? []
   }
 }
 
@@ -56,6 +58,63 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
   const createTask = useTaskStore((s) => s.createTask)
   const updateTask = useTaskStore((s) => s.updateTask)
   const promptRef = useRef<HTMLTextAreaElement>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  // このモーダルで新規に取り込んだ画像（キャンセル時に削除する）
+  const newlyImportedRef = useRef<string[]>([])
+  // 編集モードで外した既存画像（保存時に削除する）
+  const removedOriginalsRef = useRef<string[]>([])
+
+  const addImages = (stored: string[]) => {
+    if (stored.length === 0) return
+    newlyImportedRef.current.push(...stored)
+    setForm((prev) => ({ ...prev, images: [...prev.images, ...stored] }))
+  }
+
+  const removeImage = (path: string) => {
+    if (newlyImportedRef.current.includes(path)) {
+      newlyImportedRef.current = newlyImportedRef.current.filter((p) => p !== path)
+      window.api.images.delete([path])
+    } else {
+      removedOriginalsRef.current.push(path)
+    }
+    setForm((prev) => ({ ...prev, images: prev.images.filter((p) => p !== path) }))
+  }
+
+  const handleAddImages = async () => {
+    const paths = await window.api.dialog.openImages()
+    if (!paths || paths.length === 0) return
+    addImages(await window.api.images.import(paths))
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (Array.from(e.dataTransfer.items).some((item) => item.kind === 'file')) {
+      e.preventDefault()
+      setIsDragging(true)
+    }
+  }
+
+  const handleDragLeave = () => setIsDragging(false)
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+    const paths = Array.from(e.dataTransfer.files)
+      .map((f) => (f as File & { path?: string }).path)
+      .filter((p): p is string => !!p)
+    if (paths.length === 0) return
+    addImages(await window.api.images.import(paths))
+  }
+
+  const dropProps = { onDragOver: handleDragOver, onDragLeave: handleDragLeave, onDrop: handleDrop }
+
+  // 保存せずに閉じるとき、新規取り込み分の画像ファイルを破棄する
+  const handleCancel = () => {
+    if (newlyImportedRef.current.length > 0) {
+      window.api.images.delete(newlyImportedRef.current)
+      newlyImportedRef.current = []
+    }
+    onClose()
+  }
 
   const insertVariable = (variable: string) => {
     const textarea = promptRef.current
@@ -98,6 +157,9 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
       setTicketUrl('')
       setTicketError('')
       setTicketSuccess(false)
+      setIsDragging(false)
+      newlyImportedRef.current = []
+      removedOriginalsRef.current = []
       window.api.settings.get().then((settings) => {
         const allRepos = settings.repos ?? []
         setRepos(allRepos)
@@ -118,7 +180,13 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
   useEffect(() => {
     if (!isOpen) return
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        if (newlyImportedRef.current.length > 0) {
+          window.api.images.delete(newlyImportedRef.current)
+          newlyImportedRef.current = []
+        }
+        onClose()
+      }
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
@@ -166,14 +234,20 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
         url: form.url || undefined,
         output: form.output || undefined,
         directory: form.directory || undefined,
+        images: form.images,
       }
       await updateTask(editTask.id, common)
+      if (removedOriginalsRef.current.length > 0) {
+        await window.api.images.delete(removedOriginalsRef.current)
+        removedOriginalsRef.current = []
+      }
     } else {
       const base = {
         title: form.title,
         pane: '',
         status: 'will_do' as const,
-        ...(form.depends_on ? { depends_on: form.depends_on } : {})
+        ...(form.depends_on ? { depends_on: form.depends_on } : {}),
+        ...(form.images.length > 0 ? { images: form.images } : {})
       }
       switch (form.type) {
         case 'feat':
@@ -199,6 +273,7 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
           break
       }
     }
+    newlyImportedRef.current = []
     onClose()
   }
 
@@ -367,7 +442,7 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
             )}
 
             {form.type === 'orchestrate' ? (
-              <div>
+              <div {...dropProps}>
                 <label className={labelClass}>ミッション説明</label>
                 <p className="text-xs text-gray-500 mb-1">
                   何を達成したいかを記述してください。オーケストレーターがサブタスクに分解して自律実行します。
@@ -381,7 +456,7 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
                 />
               </div>
             ) : (
-              <div>
+              <div {...dropProps}>
                 <div className="flex items-center gap-2 mb-1">
                   <label className={labelClass.replace(' mb-1', '')}>
                     Prompt{form.type === 'research' && req}
@@ -420,6 +495,48 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
                 />
               </div>
             )}
+
+            {/* 添付画像 */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className={labelClass.replace(' mb-1', '')}>添付画像</label>
+                <button
+                  type="button"
+                  onClick={handleAddImages}
+                  className="text-xs text-blue-400 hover:text-blue-300"
+                >
+                  + 画像を選択...
+                </button>
+              </div>
+              <div
+                {...dropProps}
+                className={`border border-dashed rounded p-2 ${isDragging ? 'border-blue-500 bg-blue-900/20' : 'border-gray-600'}`}
+              >
+                {form.images.length === 0 ? (
+                  <p className="text-xs text-gray-500 text-center py-2">画像をここにドラッグ＆ドロップ</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {form.images.map((p) => (
+                      <div key={p} className="relative group">
+                        <img
+                          src={`bg://local?path=${encodeURIComponent(p)}`}
+                          alt="添付画像"
+                          className="h-16 w-16 object-cover rounded border border-gray-600"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeImage(p)}
+                          className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-gray-900 border border-gray-500 text-gray-300 hover:text-white hover:border-white text-[10px] leading-none hidden group-hover:block"
+                          title="画像を削除"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
 
             {form.type === 'design' && (
               <div>
@@ -497,7 +614,7 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
           <div className="flex justify-end gap-3 mt-6">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleCancel}
               className="px-4 py-2 rounded bg-gray-600 hover:bg-gray-500 text-white text-sm"
             >
               キャンセル

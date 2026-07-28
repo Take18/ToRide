@@ -67,6 +67,14 @@ function resolveLaunchMode(override: LaunchMode | undefined, isResearch: boolean
   return 'normal'
 }
 
+// 添付画像があればプロンプト末尾に参照指示を追記する
+function appendImageSection(prompt: string | undefined, task: Task): string | undefined {
+  const images = task.images
+  if (!images || images.length === 0) return prompt
+  const section = ['以下の添付画像をReadツールで読み込んで参照してください:', ...images].join('\n')
+  return prompt ? `${prompt}\n\n${section}` : section
+}
+
 function interpolateTemplate(template: string, task: Task): string {
   const vars: Record<string, string> = { title: task.title }
   if ('branch' in task) vars['branch'] = task.branch
@@ -140,7 +148,7 @@ export function createStartTaskFn(deps: StartTaskDeps): (taskId: string, launchM
       } else {
         rawPrompt = task.prompt || settings.promptTemplates?.[task.type]
       }
-      const taskPrompt = rawPrompt ? (task.type === 'orchestrate' ? rawPrompt : interpolateTemplate(rawPrompt, task)) : undefined
+      const taskPrompt = appendImageSection(rawPrompt ? (task.type === 'orchestrate' ? rawPrompt : interpolateTemplate(rawPrompt, task)) : undefined, task)
       const effectiveLaunchMode = resolveLaunchMode(launchMode, task.type === 'research', settings)
       const sessionId = randomUUID()
       claudeService.start(taskId, resolvedWorkdir, taskPrompt, effectiveLaunchMode, undefined, undefined, sessionId, undefined, model)
@@ -282,7 +290,7 @@ export function registerClaudeHandlers(
           } else {
             rawPrompt = prompt || task.prompt || settings.promptTemplates?.[task.type]
           }
-          const taskPrompt = rawPrompt ? (task.type === 'orchestrate' ? rawPrompt : interpolateTemplate(rawPrompt, task)) : undefined
+          const taskPrompt = appendImageSection(rawPrompt ? (task.type === 'orchestrate' ? rawPrompt : interpolateTemplate(rawPrompt, task)) : undefined, task)
           const effectiveLaunchMode = resolveLaunchMode(launchMode, task.type === 'research', settings)
           const sessionId = randomUUID()
           claudeService.start(taskId, resolvedWorkdir, taskPrompt, effectiveLaunchMode, cols, rows, sessionId, undefined, model)

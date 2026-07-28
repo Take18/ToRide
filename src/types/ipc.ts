@@ -127,6 +127,11 @@ export type IpcChannels = {
 
   // Dialog
   'dialog:open-directory': [void, string | null]
+  'dialog:open-images': [void, string[] | null]
+
+  // Images
+  'images:import': [string[], string[]]
+  'images:delete': [string[], void]
 
   // GitHub
   'github:sync-prs': [void, { created: number; total: number }]
@@ -216,6 +221,11 @@ export type WindowApi = {
   }
   dialog: {
     openDirectory: () => Promise<string | null>
+    openImages: () => Promise<string[] | null>
+  }
+  images: {
+    import: (sourcePaths: string[]) => Promise<string[]>
+    delete: (paths: string[]) => Promise<void>
   }
   github: {
     syncPRs: () => Promise<{ created: number; total: number }>
