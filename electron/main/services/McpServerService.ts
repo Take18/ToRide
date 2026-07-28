@@ -38,8 +38,18 @@ export class McpServerService {
                 title: { type: 'string', description: 'タスクのタイトル' },
                 branch: { type: 'string', description: 'ブランチ名（type が feat/bugfix/research の場合は必須）' },
                 baseBranch: { type: 'string', description: '分岐元ブランチ名' },
-                ticket: { type: 'string', description: 'WrikeチケットURL' },
-                prompt: { type: 'string', description: 'Claude に渡すプロンプト' },
+                ticket: {
+                  type: 'string',
+                  description:
+                    'WrikeチケットURL（type が feat/bugfix の場合は必須）。会話やミッションにチケットURLが含まれていれば必ず設定し、不明な場合は空のまま作成せずユーザーに確認すること',
+                },
+                prompt: {
+                  type: 'string',
+                  description:
+                    'Claude に渡すプロンプト。省略すると設定済みのタスクタイプ別テンプレートが自動適用されるため、タスク固有の指示がなければ省略を推奨。' +
+                    '指定した場合はテンプレートの代わりにこのプロンプトが使われる。プロンプト内では {title} {branch} {ticket} {pr-url} {output} {directory} のテンプレート変数が起動時に展開されるため、' +
+                    'title・branch・ticket 等の他フィールドの値を直書きせず変数で参照すること',
+                },
                 repoId: { type: 'string', description: 'リポジトリID（chore以外のタイプでは必須。list_repos で確認可能）' },
                 url: { type: 'string', description: 'GitHub PR URL（type が review の場合は必須）' },
                 output: { type: 'string', description: '出力先パス（type が design の場合は必須）' },
@@ -174,6 +184,11 @@ export class McpServerService {
               }
               if (type !== 'chore' && type !== 'orchestrate' && !rest.repoId) {
                 throw new Error('repoId is required for non-chore tasks. Use list_repos to get valid repo IDs.')
+              }
+              if ((type === 'feat' || type === 'bugfix') && !rest.ticket) {
+                throw new Error(
+                  'ticket is required for feat/bugfix tasks. Provide the Wrike ticket URL, or ask the user for it if unknown.'
+                )
               }
               const task = taskService.create({
                 type,

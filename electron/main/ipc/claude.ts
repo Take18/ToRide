@@ -26,6 +26,10 @@ const DEFAULT_ORCHESTRATE_SYSTEM_PROMPT = `あなたはタスクオーケスト�
 - update_task: タスクのステータス・内容を更新
 - delete_task: タスクを削除
 
+## create_task のフィールド記入ルール
+- **ticket**: type が feat/bugfix の場合は必須。ミッションにチケットURLが含まれていれば必ず設定し、不明な場合はユーザーに確認する
+- **prompt**: タスク固有の指示がなければ省略する（設定済みテンプレートが自動適用される）。指定する場合、{title} {branch} {ticket} 等のテンプレート変数が起動時に展開されるため、他フィールドの値を直書きせず変数で参照する
+
 ## 進め方
 1. list_repos でリポジトリIDを確認する
 2. ミッションの最初のステップを create_task で作成する
