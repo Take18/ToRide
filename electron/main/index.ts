@@ -9,6 +9,7 @@ import { GitService } from './services/GitService'
 import { ClaudeService } from './services/ClaudeService'
 import { DevServerService } from './services/DevServerService'
 import { GitHubService } from './services/GitHubService'
+import { DismissedPrService } from './services/DismissedPrService'
 import { LocalHttpServer } from './services/LocalHttpServer'
 import { StopHookService } from './services/StopHookService'
 import { ContextLineService } from './services/ContextLineService'
@@ -260,6 +261,7 @@ app.whenReady().then(() => {
     notification.show()
   })
   const gitHubService = new GitHubService()
+  const dismissedPrService = new DismissedPrService(db)
   const localHttpServer = new LocalHttpServer()
   localHttpServerInstance = localHttpServer
   const stopHookService = new StopHookService(localHttpServer)
@@ -325,7 +327,7 @@ app.whenReady().then(() => {
   ipcMain.handle('hooks:statusline-install', () => contextLineService.installStatusLine())
   ipcMain.handle('hooks:statusline-uninstall', () => contextLineService.uninstallStatusLine())
   registerDevServerHandlers(devServerService, getWindow, getSettings)
-  registerGitHubHandlers(gitHubService, gitService, taskService, getSettings, getWindow)
+  registerGitHubHandlers(gitHubService, gitService, taskService, dismissedPrService, getSettings, getWindow)
   registerTicketHandlers(registry, getSettings)
 
   // PR自動同期タイマー（1分ごとにチェックし、設定された間隔で同期を実行）
@@ -337,7 +339,7 @@ app.whenReady().then(() => {
     if (now - lastPrSyncAt >= intervalMs) {
       lastPrSyncAt = now
       try {
-        await syncReviewPRs(gitHubService, gitService, taskService, getSettings, getWindow)
+        await syncReviewPRs(gitHubService, gitService, taskService, dismissedPrService, getSettings, getWindow)
       } catch (err) {
         console.error('[github:sync-prs] auto-sync error:', err)
       }

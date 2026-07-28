@@ -117,7 +117,9 @@ const api = {
 
   github: {
     syncPRs: (): Promise<{ created: number; total: number }> =>
-      ipcRenderer.invoke('github:sync-prs')
+      ipcRenderer.invoke('github:sync-prs'),
+    dismissPr: (taskId: string): Promise<void> =>
+      ipcRenderer.invoke('github:dismiss-pr', taskId)
   },
 
   ticket: {

@@ -2,6 +2,7 @@ import { ipcMain, Notification, type BrowserWindow } from 'electron'
 import type { GitHubService } from '../services/GitHubService'
 import type { GitService } from '../services/GitService'
 import type { TaskService } from '../services/TaskService'
+import type { DismissedPrService } from '../services/DismissedPrService'
 import type { AppSettings } from '../../../src/types/ipc'
 import type { ReviewTask } from '../../../src/types/task'
 import { expandPath } from '../utils/path'
@@ -10,12 +11,33 @@ export function registerGitHubHandlers(
   gitHubService: GitHubService,
   gitService: GitService,
   taskService: TaskService,
+  dismissedPrService: DismissedPrService,
   getSettings: () => AppSettings,
   getWindow: () => BrowserWindow | null
 ): void {
   ipcMain.handle('github:sync-prs', async () => {
-    const result = await syncReviewPRs(gitHubService, gitService, taskService, getSettings, getWindow)
+    const result = await syncReviewPRs(
+      gitHubService,
+      gitService,
+      taskService,
+      dismissedPrService,
+      getSettings,
+      getWindow
+    )
     return result
+  })
+
+  ipcMain.handle('github:dismiss-pr', async (_, taskId: string) => {
+    const task = taskService.list().find((t) => t.id === taskId)
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`)
+    }
+    const url = (task as { url?: string }).url
+    if (task.type !== 'review' || !url) {
+      throw new Error('Only review tasks with a PR URL can be dismissed')
+    }
+    dismissedPrService.add(url)
+    taskService.delete(taskId)
   })
 }
 
@@ -47,6 +69,7 @@ export async function syncReviewPRs(
   gitHubService: GitHubService,
   gitService: GitService,
   taskService: TaskService,
+  dismissedPrService: DismissedPrService,
   getSettings: () => AppSettings,
   getWindow: () => BrowserWindow | null
 ): Promise<{ created: number; total: number }> {
@@ -72,10 +95,13 @@ export async function syncReviewPRs(
       .filter(Boolean)
   )
 
+  const dismissedUrls = new Set(dismissedPrService.listUrls())
+
   let created = 0
   const createdTaskIds: string[] = []
   for (const pr of prs) {
     if (existingUrls.has(pr.html_url)) continue
+    if (dismissedUrls.has(pr.html_url)) continue
 
     const repoId = repoFullNameMap.get(pr.repositoryFullName.toLowerCase())
 
@@ -122,6 +148,21 @@ export async function syncReviewPRs(
     if (Object.keys(updates).length > 0) {
       taskService.update(task.id, updates as Parameters<typeof taskService.update>[1])
       statusUpdated++
+    }
+  }
+
+  // dismiss済みPRのうちclose/merge済みのレコードを削除（テーブル肥大防止）
+  // 今回の取得結果に含まれるPRはopen確定なのでAPI確認をスキップ
+  const openPrUrls = new Set(prs.map((pr) => pr.html_url))
+  for (const url of dismissedUrls) {
+    if (openPrUrls.has(url)) continue
+    try {
+      const prStatus = await gitHubService.fetchPRStatus(url, githubPat)
+      if (prStatus === 'closed' || prStatus === 'merged') {
+        dismissedPrService.remove(url)
+      }
+    } catch {
+      // 個別PRのエラーは無視
     }
   }
 

@@ -7,6 +7,7 @@ import { useTerminalStore } from '../../stores/terminalStore'
 import ContextMeter from '../ContextMeter/ContextMeter'
 import BranchStatus from '../BranchStatus/BranchStatus'
 import PRStatusBadge from './PRStatusBadge'
+import ConfirmDialog from '../Common/ConfirmDialog'
 
 type Props = {
   task: RuntimeTask
@@ -214,6 +215,7 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
   const resumeTask = useTaskStore((s) => s.resumeTask)
   const updateTask = useTaskStore((s) => s.updateTask)
   const archiveTask = useTaskStore((s) => s.archiveTask)
+  const dismissTask = useTaskStore((s) => s.dismissTask)
   const openTerminal = useTerminalStore((s) => s.openTerminal)
 
   const activeTaskId = useTerminalStore((s) => s.activeTaskId)
@@ -221,6 +223,7 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
   const isHighlighted = isTerminalOpen && activeTaskId === task.id
 
   const [startError, setStartError] = useState<string | null>(null)
+  const [showDismissConfirm, setShowDismissConfirm] = useState(false)
 
   const depTask = task.depends_on ? tasks.find((t) => t.id === task.depends_on) : null
   const depBlocked = depTask ? depTask.status !== 'done' : false
@@ -250,6 +253,13 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
   const handleRevert = async () => {
     await updateTask(task.id, { status: 'will_do', completedAt: null, startedAt: null })
   }
+
+  const handleDismiss = async () => {
+    setShowDismissConfirm(false)
+    await dismissTask(task.id)
+  }
+
+  const isDismissable = task.type === 'review' && 'url' in task && !!task.url
 
   const handleResume = async (launchMode?: LaunchMode, model?: ClaudeModel) => {
     setStartError(null)
@@ -392,6 +402,16 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
                   <PRStatusBadge prStatus={task.prStatus} />
                 </div>
               )}
+              {isDismissable && (
+                <button
+                  onClick={() => setShowDismissConfirm(true)}
+                  onKeyDown={handleButtonKeyDown}
+                  className="px-2 py-1 rounded text-xs bg-red-800 hover:bg-red-700 text-white"
+                  title="タスクを削除し、以降の自動同期でこのPRを再作成しない"
+                >
+                  Dismiss
+                </button>
+              )}
               {task.type !== 'review' && task.prUrl && (
                 <button
                   onClick={() => openLink(task.prUrl!)}
@@ -508,6 +528,16 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
                   <PRStatusBadge prStatus={task.prStatus} />
                 </div>
               )}
+              {isDismissable && (
+                <button
+                  onClick={() => setShowDismissConfirm(true)}
+                  onKeyDown={handleButtonKeyDown}
+                  className="px-2 py-1 rounded text-xs bg-red-800 hover:bg-red-700 text-white"
+                  title="タスクを削除し、以降の自動同期でこのPRを再作成しない"
+                >
+                  Dismiss
+                </button>
+              )}
               {(task.type === 'feat' || task.type === 'bugfix') && 'ticket' in task && task.ticket && (
                 <button
                   onClick={() => openLink(task.ticket)}
@@ -557,6 +587,13 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
         )}
       </div>
 
+      <ConfirmDialog
+        isOpen={showDismissConfirm}
+        title="PRをDismiss"
+        message={`「${task.title}」を削除し、以降の自動同期でこのPRのタスクを再作成しないようにします。よろしいですか？`}
+        onConfirm={handleDismiss}
+        onCancel={() => setShowDismissConfirm(false)}
+      />
     </>
   )
 }
