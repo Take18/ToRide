@@ -71,6 +71,51 @@ export class GitHubService {
     })
   }
 
+  /** PRのURLから単一PRの情報を取得する（PATは任意・publicリポジトリなら省略可） */
+  async fetchPullRequest(url: string, pat?: string): Promise<GitHubPullRequest> {
+    const match = url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/)
+    if (!match) throw new Error('PRのURLを解析できませんでした')
+    const [, owner, repo, number] = match
+
+    const headers: Record<string, string> = {
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28'
+    }
+    if (pat) headers['Authorization'] = `Bearer ${pat}`
+
+    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${number}`, {
+      headers
+    })
+    if (!res.ok) {
+      if (res.status === 404 && !pat) {
+        throw new Error(
+          'PRが見つかりませんでした（privateリポジトリの場合は設定でGitHub PATを登録してください）'
+        )
+      }
+      const body = await res.text()
+      throw new Error(`GitHub API エラー ${res.status}: ${body}`)
+    }
+
+    const data = (await res.json()) as {
+      number: number
+      title: string
+      html_url: string
+      draft?: boolean
+      state: string
+      merged?: boolean
+    }
+
+    return {
+      number: data.number,
+      title: data.title,
+      html_url: data.html_url,
+      repositoryName: repo,
+      repositoryFullName: `${owner}/${repo}`,
+      draft: data.draft ?? false,
+      state: data.merged ? 'merged' : data.state
+    }
+  }
+
   async fetchPRStatus(
     url: string,
     pat: string

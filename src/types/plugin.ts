@@ -26,7 +26,9 @@ export type TicketFetchResult = {
   providerId: string
   id: string
   title: string
-  taskType: 'feat' | 'bugfix' | null
+  taskType: 'feat' | 'bugfix' | 'review' | null
   url: string
+  /** gitリモートから解決できたリポジトリID（解決できなければ undefined） */
+  repoId?: string
   meta?: Record<string, string>
 }
