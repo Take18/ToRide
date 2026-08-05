@@ -117,6 +117,24 @@ function getSettings(): AppSettings {
     }
   }
 
+  // Decrypt per-owner GitHub tokens
+  if (settings.githubTokens && safeStorage.isEncryptionAvailable()) {
+    settings.githubTokens = settings.githubTokens.map((entry) => {
+      if (!entry.token) return entry
+      try {
+        const encrypted = Buffer.from(entry.token, 'base64')
+        return { ...entry, token: safeStorage.decryptString(encrypted) }
+      } catch {
+        // 復号失敗（アプリ名変更等でsafeStorageの鍵が変わった場合）。
+        // 暗号化バイト列をトークンとして使わないよう空にして再入力を促す。
+        console.warn(
+          `[settings] GitHub token decryption failed for scope "${entry.scope}" - cleared. User needs to re-enter.`
+        )
+        return { ...entry, token: '' }
+      }
+    })
+  }
+
   // Decrypt encrypted plugin settings
   if (settings.pluginSettings && safeStorage.isEncryptionAvailable()) {
     for (const plugin of registry.listTicketPlugins()) {
@@ -209,6 +227,16 @@ app.whenReady().then(() => {
     const toSave = { ...merged }
     if (toSave.githubPat && safeStorage.isEncryptionAvailable()) {
       toSave.githubPat = safeStorage.encryptString(toSave.githubPat).toString('base64')
+    }
+    if (toSave.githubTokens) {
+      // 空スコープ・空トークンの行は保存しない（UI上の未入力行を残さない）
+      const entries = toSave.githubTokens.filter((e) => e.scope.trim() && e.token.trim())
+      toSave.githubTokens = safeStorage.isEncryptionAvailable()
+        ? entries.map((e) => ({
+            ...e,
+            token: safeStorage.encryptString(e.token).toString('base64')
+          }))
+        : entries
     }
     if (toSave.pluginSettings && safeStorage.isEncryptionAvailable()) {
       for (const plugin of registry.listTicketPlugins()) {
@@ -416,7 +444,7 @@ app.whenReady().then(() => {
     })
     if (result.canceled || !result.filePath) return false
     const settings = getSettings()
-    const { githubPat: _omit, ...exportSettings } = settings
+    const { githubPat: _omit, githubTokens: _omitTokens, ...exportSettings } = settings
     writeFileSync(result.filePath, JSON.stringify(exportSettings, null, 2), 'utf-8')
     return true
   })

@@ -206,6 +206,18 @@ src/
 - **自動同期タイマー**: アプリ起動中1分ごとにチェック、設定間隔（デフォルト5分）で同期実行
 - **手動同期**: 設定画面の「今すぐ同期」ボタンでオンデマンド実行
 - **デスクトップ通知**: 新規タスク作成時に件数を通知
+- **マルチトークン検索**: 登録トークンごとに `review-requested` 検索を実行し、PRのURLで結果をマージ（fine-grained token はアクセス可能リポジトリしか検索できないため）
+- **認証エラー通知**: 401 / 403（権限不足）を握り潰さず集約してデスクトップ通知。失敗スコープの面子が変わるまで再通知しない（403 はレート制限と区別）
+
+### GitHub トークン管理（fine-grained PAT 対応）
+
+- **owner / owner/repo 単位で複数トークンを登録**: `githubTokens: GitHubTokenEntry[]`
+- **解決順序**: `owner/repo` → `owner` → 共通フォールバック `githubPat`
+- **疎通確認**: 設定画面の「疎通確認」ボタンで `GET /user`（有効期限取得）＋スコープ対象への実アクセスまで確認
+  - `owner/repo` スコープ: `GET /repos/{owner}/{repo}` を直接叩く
+  - `owner` スコープ: `GET /user/repos` を列挙して owner 配下のアクセス可能リポジトリを確認（最大3ページで打ち切り）
+- **有効期限表示**: `github-authentication-token-expiration` ヘッダから取得し、残7日以内は黄・期限切れは赤で表示
+- **未登録owner警告**: 設定済みリポジトリのgitリモートから owner を集め、トークン未登録の owner を設定画面に表示
 
 ### 背景画像スライドショー
 
@@ -221,7 +233,8 @@ src/
 | フィールド | 説明 |
 |---|---|
 | `repos` | RepoConfig[] - リポジトリ単位でペインをグループ管理（id / name / panes[]） |
-| `githubPat` | GitHub PAT（safeStorageで暗号化保存） |
+| `githubPat` | GitHub PAT（全owner共通のフォールバック・safeStorageで暗号化保存） |
+| `githubTokens` | GitHubTokenEntry[] - owner / owner/repo 単位のfine-grained token（scope / token / expiresAt / lastCheck。tokenはsafeStorageで暗号化保存） |
 | `githubUsername` | GitHubユーザー名（PR自動同期用） |
 | `githubPrSyncIntervalMin` | PR自動同期間隔（分、デフォルト5） |
 | `useDangerouslySkipPermissions` | claude起動時に`--dangerously-skip-permissions`を付加 |
@@ -254,7 +267,10 @@ src/
 - **repoId の保存**: `BaseTask.repoId` はタスクの `data` JSON カラムに保存（専用DBカラムなし）
 - **worktree対応**: 同一リポジトリの複数ワークツリーを別paneにマッピング可能（`git checkout` でブランチ切り替え）
 - **DBファイル**: `app.getPath('userData')` に保存
-- **GitHub PAT**: `safeStorage.encryptString` で暗号化してDB保存
+- **GitHub PAT**: `safeStorage.encryptString` で暗号化してDB保存。`githubTokens[].token` も同様（復号失敗時は空にして再入力を促す）
+- **GitHubトークンの解決**: `utils/githubToken.ts` の `resolveGitHubToken(settings, owner, repo)` に集約。`owner/repo` → `owner` → `githubPat` の順に引く
+- **チケットプラグインへのトークン受け渡し**: URLの owner/repo に対応するトークンのみ `pluginSettings.githubPat` に注入（GitHub以外のURLでは渡さない）
+- **設定エクスポート**: `githubPat` / `githubTokens` は除外
 - **PTY管理**: `Map<taskId, IPty>` でセッションをライフサイクル全体で維持
 - **コンテキスト解析**: Status Line Hook 経由が主系、stdout/stderrパースはフォールバック。`used_percentage` ベースで計算し、セッション最大値を追跡して逆行防止
 - **bg://プロトコル**: `protocol.registerSchemesAsPrivileged` で`app.whenReady`より前に登録必要

@@ -1,11 +1,20 @@
 import { ipcMain, Notification, type BrowserWindow } from 'electron'
-import type { GitHubService } from '../services/GitHubService'
+import { GitHubAuthError, type GitHubService, type GitHubAuthFailure } from '../services/GitHubService'
 import type { GitService } from '../services/GitService'
 import type { TaskService } from '../services/TaskService'
 import type { DismissedPrService } from '../services/DismissedPrService'
-import type { AppSettings } from '../../../src/types/ipc'
+import type { AppSettings, GitHubTokenVerifyResult } from '../../../src/types/ipc'
 import type { ReviewTask } from '../../../src/types/task'
 import { expandPath } from '../utils/path'
+import {
+  listSearchTokens,
+  normalizeTokenScope,
+  parseOwnerRepoFromUrl,
+  resolveGitHubToken
+} from '../utils/githubToken'
+
+// 認証エラー通知の重複抑止（同期は数分ごとに走るため、失敗の面子が変わるまで再通知しない）
+let lastAuthAlertKey = ''
 
 export function registerGitHubHandlers(
   gitHubService: GitHubService,
@@ -39,6 +48,54 @@ export function registerGitHubHandlers(
     dismissedPrService.add(url)
     taskService.delete(taskId)
   })
+
+  ipcMain.handle(
+    'github:verify-token',
+    async (_, { scope, token }: { scope: string; token: string }): Promise<GitHubTokenVerifyResult> => {
+      const normalized = normalizeTokenScope(scope)
+      if (!normalized) {
+        return { ok: false, message: 'スコープを owner または owner/repo 形式で入力してください' }
+      }
+      if (!token.trim()) {
+        return { ok: false, message: 'トークンを入力してください' }
+      }
+      try {
+        return await gitHubService.verifyToken(normalized, token.trim())
+      } catch (error) {
+        return { ok: false, message: `確認に失敗しました: ${(error as Error).message}` }
+      }
+    }
+  )
+
+  // 設定済みリポジトリのgitリモートから owner 一覧を返す（トークン未登録ownerの警告用）
+  ipcMain.handle('github:repo-owners', async (): Promise<string[]> => {
+    const fullNames = await listRepoFullNames(gitService, getSettings())
+    const owners = new Set<string>()
+    for (const { fullName } of fullNames) {
+      const owner = fullName.split('/')[0]
+      if (owner) owners.add(owner)
+    }
+    return [...owners].sort((a, b) => a.localeCompare(b))
+  })
+}
+
+async function listRepoFullNames(
+  gitService: GitService,
+  settings: AppSettings
+): Promise<Array<{ fullName: string; repoId: string }>> {
+  const result: Array<{ fullName: string; repoId: string }> = []
+  for (const repo of settings.repos) {
+    // 先頭ペインが解決できない場合に備えて全ペインを順に試す
+    for (const pane of repo.panes) {
+      if (!pane.path) continue
+      const fullName = await gitService.getRemoteFullName(expandPath(pane.path))
+      if (fullName) {
+        result.push({ fullName, repoId: repo.id })
+        break
+      }
+    }
+  }
+  return result
 }
 
 async function buildRepoFullNameMap(
@@ -46,16 +103,8 @@ async function buildRepoFullNameMap(
   settings: AppSettings
 ): Promise<Map<string, string>> {
   const map = new Map<string, string>()
-  for (const repo of settings.repos) {
-    // 先頭ペインが解決できない場合に備えて全ペインを順に試す
-    for (const pane of repo.panes) {
-      if (!pane.path) continue
-      const fullName = await gitService.getRemoteFullName(expandPath(pane.path))
-      if (fullName) {
-        map.set(fullName.toLowerCase(), repo.id)
-        break
-      }
-    }
+  for (const { fullName, repoId } of await listRepoFullNames(gitService, settings)) {
+    map.set(fullName.toLowerCase(), repoId)
   }
   return map
 }
@@ -72,16 +121,46 @@ export async function syncReviewPRs(
   dismissedPrService: DismissedPrService,
   getSettings: () => AppSettings,
   getWindow: () => BrowserWindow | null
-): Promise<{ created: number; total: number }> {
+): Promise<{ created: number; total: number; authErrors: string[] }> {
   const settings = getSettings()
-  const githubPat = settings.githubPat?.trim()
   const githubUsername = settings.githubUsername?.trim()
+  const searchTokens = listSearchTokens(settings)
 
-  if (!githubPat || !githubUsername) {
-    return { created: 0, total: 0 }
+  if (!githubUsername || searchTokens.length === 0) {
+    return { created: 0, total: 0, authErrors: [] }
   }
 
-  const prs = await gitHubService.fetchReviewRequestedPRs(githubUsername, githubPat)
+  const authFailures: GitHubAuthFailure[] = []
+
+  const {
+    prs,
+    tokenByUrl,
+    authErrors: searchAuthErrors
+  } = await gitHubService.fetchReviewRequestedPRs(githubUsername, searchTokens)
+  authFailures.push(...searchAuthErrors)
+
+  // PRのURLからそのPRに使えるトークンを引く。
+  // 登録スコープで引けない場合は、そのPRを発見したトークンを使う。
+  const tokenForUrl = (url: string): string | undefined => {
+    const parsed = parseOwnerRepoFromUrl(url)
+    return resolveGitHubToken(settings, parsed?.owner, parsed?.repo) ?? tokenByUrl.get(url)
+  }
+
+  // 個別PRのAPIエラーは同期全体を止めない。認証エラーのみ集約して後で通知する
+  const fetchPRStatusSafely = async (
+    url: string
+  ): Promise<'open' | 'draft' | 'merged' | 'closed' | null> => {
+    const token = tokenForUrl(url)
+    if (!token) return null
+    try {
+      return await gitHubService.fetchPRStatus(url, token)
+    } catch (error) {
+      if (error instanceof GitHubAuthError) {
+        authFailures.push({ label: error.target, status: error.status, detail: error.detail })
+      }
+      return null
+    }
+  }
 
   // リポジトリのgitリモートURLからrepoIdへのマップを構築
   const repoFullNameMap = await buildRepoFullNameMap(gitService, settings)
@@ -136,13 +215,9 @@ export async function syncReviewPRs(
       }
     }
 
-    try {
-      const prStatus = await gitHubService.fetchPRStatus(url, githubPat)
-      if (prStatus !== null && prStatus !== (task as { prStatus?: string }).prStatus) {
-        updates.prStatus = prStatus
-      }
-    } catch {
-      // 個別PRのエラーは無視
+    const prStatus = await fetchPRStatusSafely(url)
+    if (prStatus !== null && prStatus !== (task as { prStatus?: string }).prStatus) {
+      updates.prStatus = prStatus
     }
 
     if (Object.keys(updates).length > 0) {
@@ -156,13 +231,9 @@ export async function syncReviewPRs(
   const openPrUrls = new Set(prs.map((pr) => pr.html_url))
   for (const url of dismissedUrls) {
     if (openPrUrls.has(url)) continue
-    try {
-      const prStatus = await gitHubService.fetchPRStatus(url, githubPat)
-      if (prStatus === 'closed' || prStatus === 'merged') {
-        dismissedPrService.remove(url)
-      }
-    } catch {
-      // 個別PRのエラーは無視
+    const prStatus = await fetchPRStatusSafely(url)
+    if (prStatus === 'closed' || prStatus === 'merged') {
+      dismissedPrService.remove(url)
     }
   }
 
@@ -171,24 +242,58 @@ export async function syncReviewPRs(
     getWindow()?.webContents.send('tasks:updated')
   }
 
-  if (created > 0) {
-    const { notificationsEnabled = true } = settings
-    if (notificationsEnabled) {
-      const notification = new Notification({
-        title: 'レビュー依頼のPRを検出',
-        body: `${created} 件の新しいレビュー依頼タスクを作成しました`
+  const { notificationsEnabled = true } = settings
+
+  if (created > 0 && notificationsEnabled) {
+    const notification = new Notification({
+      title: 'レビュー依頼のPRを検出',
+      body: `${created} 件の新しいレビュー依頼タスクを作成しました`
+    })
+    if (createdTaskIds.length > 0) {
+      notification.on('click', () => {
+        const win = getWindow()
+        win?.show()
+        win?.focus()
+        win?.webContents.send('navigation:goto', { type: 'pr-detected', taskId: createdTaskIds[0] })
       })
-      if (createdTaskIds.length > 0) {
-        notification.on('click', () => {
-          const win = getWindow()
-          win?.show()
-          win?.focus()
-          win?.webContents.send('navigation:goto', { type: 'pr-detected', taskId: createdTaskIds[0] })
-        })
-      }
-      notification.show()
     }
+    notification.show()
   }
 
-  return { created, total: prs.length }
+  const authErrors = summarizeAuthFailures(authFailures)
+  notifyAuthFailures(authErrors, notificationsEnabled)
+
+  return { created, total: prs.length, authErrors }
+}
+
+/** 同一スコープの認証エラーをまとめて表示用の文字列にする */
+function summarizeAuthFailures(failures: GitHubAuthFailure[]): string[] {
+  const byLabel = new Map<string, number>()
+  for (const failure of failures) {
+    if (!byLabel.has(failure.label)) byLabel.set(failure.label, failure.status)
+  }
+  return [...byLabel.entries()].map(
+    ([label, status]) =>
+      `${label}: ${status === 401 ? 'トークンが無効か期限切れです' : '権限が不足しています'}（HTTP ${status}）`
+  )
+}
+
+/** 認証エラーを通知する。失敗の面子が前回と同じなら再通知しない */
+function notifyAuthFailures(authErrors: string[], notificationsEnabled: boolean): void {
+  if (authErrors.length === 0) {
+    lastAuthAlertKey = ''
+    return
+  }
+
+  const key = [...authErrors].sort().join('|')
+  if (key === lastAuthAlertKey) return
+  lastAuthAlertKey = key
+
+  console.warn('[github] token auth failures:', authErrors.join(' / '))
+  if (!notificationsEnabled) return
+
+  new Notification({
+    title: 'GitHub トークンを確認してください',
+    body: authErrors.join('\n')
+  }).show()
 }
