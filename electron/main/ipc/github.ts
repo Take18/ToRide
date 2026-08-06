@@ -5,7 +5,7 @@ import type { TaskService } from '../services/TaskService'
 import type { DismissedPrService } from '../services/DismissedPrService'
 import type { AppSettings, GitHubTokenVerifyResult } from '../../../src/types/ipc'
 import type { ReviewTask } from '../../../src/types/task'
-import { expandPath } from '../utils/path'
+import { buildRepoFullNameMap, extractFullNameFromPrUrl, listRepoFullNames } from '../utils/repoMap'
 import {
   listSearchTokens,
   normalizeTokenScope,
@@ -77,41 +77,6 @@ export function registerGitHubHandlers(
     }
     return [...owners].sort((a, b) => a.localeCompare(b))
   })
-}
-
-async function listRepoFullNames(
-  gitService: GitService,
-  settings: AppSettings
-): Promise<Array<{ fullName: string; repoId: string }>> {
-  const result: Array<{ fullName: string; repoId: string }> = []
-  for (const repo of settings.repos) {
-    // 先頭ペインが解決できない場合に備えて全ペインを順に試す
-    for (const pane of repo.panes) {
-      if (!pane.path) continue
-      const fullName = await gitService.getRemoteFullName(expandPath(pane.path))
-      if (fullName) {
-        result.push({ fullName, repoId: repo.id })
-        break
-      }
-    }
-  }
-  return result
-}
-
-async function buildRepoFullNameMap(
-  gitService: GitService,
-  settings: AppSettings
-): Promise<Map<string, string>> {
-  const map = new Map<string, string>()
-  for (const { fullName, repoId } of await listRepoFullNames(gitService, settings)) {
-    map.set(fullName.toLowerCase(), repoId)
-  }
-  return map
-}
-
-function extractFullNameFromPrUrl(url: string): string | null {
-  const match = url.match(/github\.com\/([^/]+\/[^/]+)\/pull\/\d+/)
-  return match ? match[1] : null
 }
 
 export async function syncReviewPRs(

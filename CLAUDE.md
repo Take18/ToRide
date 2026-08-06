@@ -95,6 +95,7 @@ src/
   - `orchestrate`: タイトル / ディレクトリ（省略可） / プロンプト（repoId不要・ペイン非占有のコーディネーター役）
 - **ブランチオートコンプリート**: ブランチ入力を Combobox に変更、既存ブランチをプレフィックス一致順に候補表示
 - **チケットプラグイン**: Wrike（デフォルト）と GitHub Issue をサポート（PluginRegistry架）
+- **PR URLから自動入力**: タスクフォームのURL自動入力欄にGitHub PR URLを渡すと、`review` タスクとしてタイプ・タイトル（`[repo] #番号 PRタイトル`）・PR URL・prStatus を自動設定し、gitリモートと突き合わせて `repoId` も自動選択（プラグイン設定不要で常に有効）
 - **プロンプト変数チップ**: タスクフォームの変数チップをクリックするとカーソル位置に挿入
 - **フォルダ選択**: choreタスクのDirectory入力にフォルダ選択ダイアログボタン
 - **編集**: タイプ以外の全フィールドを編集可能
@@ -270,6 +271,8 @@ src/
 - **GitHub PAT**: `safeStorage.encryptString` で暗号化してDB保存。`githubTokens[].token` も同様（復号失敗時は空にして再入力を促す）
 - **GitHubトークンの解決**: `utils/githubToken.ts` の `resolveGitHubToken(settings, owner, repo)` に集約。`owner/repo` → `owner` → `githubPat` の順に引く
 - **チケットプラグインへのトークン受け渡し**: URLの owner/repo に対応するトークンのみ `pluginSettings.githubPat` に注入（GitHub以外のURLでは渡さない）
+- **PR URL自動入力のトークン**: `ticket:fetch` の PR URL 経路も `resolveGitHubTokenForUrl()` で解決（未登録ownerは未認証で取得を試み、privateなら404案内）
+- **リポジトリ名の解決**: `utils/repoMap.ts` の `listRepoFullNames()` が基点。`buildRepoFullNameMap()`（repoId解決）と `github:repo-owners`（owner一覧）が共用する
 - **設定エクスポート**: `githubPat` / `githubTokens` は除外
 - **PTY管理**: `Map<taskId, IPty>` でセッションをライフサイクル全体で維持
 - **コンテキスト解析**: Status Line Hook 経由が主系、stdout/stderrパースはフォールバック。`used_percentage` ベースで計算し、セッション最大値を追跡して逆行防止

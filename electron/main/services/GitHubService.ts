@@ -172,6 +172,51 @@ export class GitHubService {
     })
   }
 
+  /** PRのURLから単一PRの情報を取得する（トークンは任意・publicリポジトリなら省略可） */
+  async fetchPullRequest(url: string, pat?: string): Promise<GitHubPullRequest> {
+    const match = url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/)
+    if (!match) throw new Error('PRのURLを解析できませんでした')
+    const [, owner, repo, number] = match
+
+    const headers = pat ? authHeaders(pat) : { ...BASE_HEADERS }
+
+    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls/${number}`, {
+      headers
+    })
+    if (!res.ok) {
+      // fine-grained token では対象リポジトリ未選択でも404が返るため、トークンの有無を問わず案内する
+      if (res.status === 404) {
+        throw new Error(
+          `PRが見つかりませんでした（privateリポジトリの場合は設定で ${owner} 用のGitHubトークンを登録してください）`
+        )
+      }
+      const body = await res.text()
+      if (isAuthFailure(res)) {
+        throw new GitHubAuthError(res.status, `${owner}/${repo}`, body)
+      }
+      throw new Error(`GitHub API エラー ${res.status}: ${body}`)
+    }
+
+    const data = (await res.json()) as {
+      number: number
+      title: string
+      html_url: string
+      draft?: boolean
+      state: string
+      merged?: boolean
+    }
+
+    return {
+      number: data.number,
+      title: data.title,
+      html_url: data.html_url,
+      repositoryName: repo,
+      repositoryFullName: `${owner}/${repo}`,
+      draft: data.draft ?? false,
+      state: data.merged ? 'merged' : data.state
+    }
+  }
+
   /**
    * PRのステータスを取得する。
    * 認証・権限エラーは GitHubAuthError を throw する（呼び出し側で通知するため握り潰さない）。

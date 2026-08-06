@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import type { TaskType, RuntimeTask } from '../../types/task'
+import type { TaskType, RuntimeTask, ReviewTask } from '../../types/task'
 import type { RepoConfig } from '../../types/ipc'
 import type { TicketProviderMeta } from '../../types/plugin'
 import { useTaskStore } from '../../stores/taskStore'
@@ -53,6 +53,8 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
   const [ticketFetching, setTicketFetching] = useState(false)
   const [ticketError, setTicketError] = useState('')
   const [ticketSuccess, setTicketSuccess] = useState(false)
+  // PR URL から取得した際の prStatus（作成時にそのまま保存してバッジを即時表示する）
+  const [fetchedPrStatus, setFetchedPrStatus] = useState('')
   const [providers, setProviders] = useState<TicketProviderMeta[]>([])
   const tasks = useTaskStore((s) => s.tasks)
   const createTask = useTaskStore((s) => s.createTask)
@@ -157,6 +159,7 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
       setTicketUrl('')
       setTicketError('')
       setTicketSuccess(false)
+      setFetchedPrStatus('')
       setIsDragging(false)
       newlyImportedRef.current = []
       removedOriginalsRef.current = []
@@ -204,13 +207,21 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
     setTicketError('')
     setTicketSuccess(false)
     try {
-      const info = await window.api.ticket.fetch(ticketUrl.trim())
+      const input = ticketUrl.trim()
+      const info = await window.api.ticket.fetch(input)
+      const type = info.taskType ?? form.type
+      // gitリモートから解決できたリポジトリがあれば選択状態も合わせる
+      const repoId = info.repoId && repos.some((r) => r.id === info.repoId) ? info.repoId : form.repoId
       setForm((prev) => ({
         ...prev,
-        type: info.taskType ?? prev.type,
+        type,
         title: info.title,
-        ticket: ticketUrl.trim(),
+        repoId,
+        // review（PR URL）は PR URL 欄、それ以外は Ticket URL 欄に入れる
+        ...(type === 'review' ? { url: info.url || input } : { ticket: input }),
       }))
+      setFetchedPrStatus(type === 'review' ? info.meta?.prStatus ?? '' : '')
+      if (repoId !== form.repoId) loadBranches(repoId, repos)
       setTicketSuccess(true)
     } catch (e) {
       setTicketError((e as Error).message)
@@ -257,7 +268,14 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
           await createTask({ ...base, type: 'design', repoId: form.repoId || undefined, output: form.output, prompt: form.prompt || undefined })
           break
         case 'review':
-          await createTask({ ...base, type: 'review', repoId: form.repoId || undefined, url: form.url, prompt: form.prompt || undefined })
+          await createTask({
+            ...base,
+            type: 'review',
+            repoId: form.repoId || undefined,
+            url: form.url,
+            prompt: form.prompt || undefined,
+            ...(fetchedPrStatus ? { prStatus: fetchedPrStatus as ReviewTask['prStatus'] } : {})
+          })
           break
         case 'bugfix':
           await createTask({ ...base, type: 'bugfix', repoId: form.repoId || undefined, branch: form.branch, baseBranch: form.baseBranch || undefined, ticket: form.ticket, prompt: form.prompt || undefined })
@@ -306,11 +324,11 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
           <h2 className="text-lg font-semibold text-white mb-4">{editTask ? 'タスクを編集' : '新規タスク'}</h2>
 
           <div className="space-y-3">
-            {/* チケットから自動入力（新規作成時・設定済みプロバイダーがある場合のみ） */}
+            {/* チケット / PR URL から自動入力（新規作成時・設定済みプロバイダーがある場合のみ） */}
             {!editTask && configuredProviders.length > 0 && (
               <div className="bg-gray-750 border border-gray-600 rounded p-3">
                 <label className="block text-xs text-gray-400 mb-1.5">
-                  チケットから自動入力（対応: {configuredProviders.map((p) => p.displayName).join(', ')}）
+                  URLから自動入力（対応: {configuredProviders.map((p) => p.displayName).join(', ')}）
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -318,7 +336,7 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
                     value={ticketUrl}
                     onChange={(e) => { setTicketUrl(e.target.value); setTicketSuccess(false); setTicketError('') }}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleTicketFetch() } }}
-                    placeholder="チケットURL"
+                    placeholder="チケットURL / PR URL"
                     className={inputClass}
                   />
                   <button
@@ -331,7 +349,7 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
                   </button>
                 </div>
                 {ticketError && <p className="text-xs text-red-400 mt-1">{ticketError}</p>}
-                {ticketSuccess && <p className="text-xs text-green-400 mt-1">チケット情報を取得しました</p>}
+                {ticketSuccess && <p className="text-xs text-green-400 mt-1">URLから情報を取得しました</p>}
               </div>
             )}
 

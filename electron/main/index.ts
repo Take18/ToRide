@@ -357,7 +357,7 @@ app.whenReady().then(() => {
   ipcMain.handle('hooks:statusline-uninstall', () => contextLineService.uninstallStatusLine())
   registerDevServerHandlers(devServerService, getWindow, getSettings)
   registerGitHubHandlers(gitHubService, gitService, taskService, dismissedPrService, getSettings, getWindow)
-  registerTicketHandlers(registry, getSettings)
+  registerTicketHandlers(registry, getSettings, gitHubService, gitService)
 
   // PR自動同期タイマー（1分ごとにチェックし、設定された間隔で同期を実行）
   let lastPrSyncAt = 0
