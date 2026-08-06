@@ -5,7 +5,7 @@ import type { TaskService } from '../services/TaskService'
 import type { DismissedPrService } from '../services/DismissedPrService'
 import type { AppSettings } from '../../../src/types/ipc'
 import type { ReviewTask } from '../../../src/types/task'
-import { expandPath } from '../utils/path'
+import { buildRepoFullNameMap, extractFullNameFromPrUrl } from '../utils/repoMap'
 
 export function registerGitHubHandlers(
   gitHubService: GitHubService,
@@ -39,30 +39,6 @@ export function registerGitHubHandlers(
     dismissedPrService.add(url)
     taskService.delete(taskId)
   })
-}
-
-async function buildRepoFullNameMap(
-  gitService: GitService,
-  settings: AppSettings
-): Promise<Map<string, string>> {
-  const map = new Map<string, string>()
-  for (const repo of settings.repos) {
-    // 先頭ペインが解決できない場合に備えて全ペインを順に試す
-    for (const pane of repo.panes) {
-      if (!pane.path) continue
-      const fullName = await gitService.getRemoteFullName(expandPath(pane.path))
-      if (fullName) {
-        map.set(fullName.toLowerCase(), repo.id)
-        break
-      }
-    }
-  }
-  return map
-}
-
-function extractFullNameFromPrUrl(url: string): string | null {
-  const match = url.match(/github\.com\/([^/]+\/[^/]+)\/pull\/\d+/)
-  return match ? match[1] : null
 }
 
 export async function syncReviewPRs(
