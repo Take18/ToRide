@@ -5,6 +5,7 @@ import type { GitService } from '../services/GitService'
 import type { AppSettings } from '../../../src/types/ipc'
 import type { TicketProviderMeta, TicketFetchResult } from '../../../src/types/plugin'
 import { buildRepoFullNameMap } from '../utils/repoMap'
+import { resolveGitHubTokenForUrl } from '../utils/githubToken'
 
 /** GitHub PR URL からのタスク作成は常に有効（プラグイン設定不要） */
 const PR_URL_PATTERN = /github\.com\/[^/]+\/[^/]+\/pull\/\d+/
@@ -21,7 +22,8 @@ export function registerTicketHandlers(
 
     // PR URL は review タスクとして扱う（プラグイン判定より優先）
     if (PR_URL_PATTERN.test(url)) {
-      const pr = await gitHubService.fetchPullRequest(url, settings.githubPat?.trim() || undefined)
+      // PRのowner/repoに対応するトークンを使う（未登録ならpublicリポジトリとして未認証で取得を試みる）
+      const pr = await gitHubService.fetchPullRequest(url, resolveGitHubTokenForUrl(settings, url))
       const repoMap = await buildRepoFullNameMap(gitService, settings)
       return {
         providerId: PR_PROVIDER_ID,
@@ -41,7 +43,10 @@ export function registerTicketHandlers(
     if (!plugin) throw new Error('このURLに対応するプロバイダーがありません')
 
     const pluginSettings: Record<string, string> = { ...settings.pluginSettings?.[plugin.id] ?? {} }
-    if (settings.githubPat) pluginSettings.githubPat = settings.githubPat
+    // GitHub系プラグイン向けに、URLの owner/repo に対応するトークンだけを渡す
+    // （GitHub以外のURLではトークンを渡さない）
+    const githubToken = resolveGitHubTokenForUrl(settings, url)
+    if (githubToken) pluginSettings.githubPat = githubToken
     const info = await plugin.fetchTicket(url, pluginSettings)
 
     return {

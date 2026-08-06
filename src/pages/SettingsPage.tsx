@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import type { AppSettings, RepoConfig, PaneConfig, DevServerConfig } from '../types/ipc'
+import type {
+  AppSettings,
+  RepoConfig,
+  PaneConfig,
+  DevServerConfig,
+  GitHubTokenEntry
+} from '../types/ipc'
 import type { TicketProviderMeta, PluginCatalogEntry } from '../types/plugin'
 import ConfirmDialog from '../components/Common/ConfirmDialog'
 import Toast from '../components/Common/Toast'
@@ -82,6 +88,152 @@ function TicketIdChecker({ configured, inputClass }: { configured: boolean; inpu
       {result && (
         <p className={`text-xs mt-1.5 font-mono ${result.startsWith('エラー') ? 'text-red-400' : 'text-green-400'}`}>
           {result}
+        </p>
+      )}
+    </div>
+  )
+}
+
+// "owner" / "owner/repo" への正規化（main側の normalizeTokenScope と同じ規則）
+function normalizeScope(input: string): string {
+  const trimmed = input
+    .trim()
+    .replace(/^https?:\/\/(?:www\.)?github\.com\//i, '')
+    .replace(/\.git$/i, '')
+  return trimmed.split('/').filter(Boolean).slice(0, 2).join('/').toLowerCase()
+}
+
+function formatExpiration(expiresAt: string): { text: string; className: string } {
+  const date = new Date(expiresAt)
+  if (Number.isNaN(date.getTime())) return { text: expiresAt, className: 'text-gray-500' }
+  const daysLeft = Math.floor((date.getTime() - Date.now()) / 86_400_000)
+  const text = `期限: ${date.toLocaleDateString()}（残り${daysLeft}日）`
+  if (daysLeft < 0) return { text: `期限切れ: ${date.toLocaleDateString()}`, className: 'text-red-400' }
+  if (daysLeft <= 7) return { text, className: 'text-yellow-400' }
+  return { text, className: 'text-gray-500' }
+}
+
+// fine-grained token を owner / owner/repo 単位で管理するセクション
+function GitHubTokenList({
+  tokens,
+  onChange,
+  legacyPatConfigured,
+  inputClass
+}: {
+  tokens: GitHubTokenEntry[]
+  onChange: (tokens: GitHubTokenEntry[]) => void
+  legacyPatConfigured: boolean
+  inputClass: string
+}) {
+  const [owners, setOwners] = useState<string[]>([])
+  const [verifyingIndex, setVerifyingIndex] = useState<number | null>(null)
+
+  useEffect(() => {
+    window.api.github.repoOwners().then(setOwners).catch(() => setOwners([]))
+  }, [])
+
+  const coveredOwners = new Set(
+    tokens
+      .filter((t) => t.token.trim())
+      .map((t) => normalizeScope(t.scope).split('/')[0])
+      .filter(Boolean)
+  )
+  const uncoveredOwners = owners.filter((o) => !coveredOwners.has(o.toLowerCase()))
+
+  const updateEntry = (index: number, patch: Partial<GitHubTokenEntry>) => {
+    onChange(tokens.map((t, i) => (i === index ? { ...t, ...patch } : t)))
+  }
+
+  const handleVerify = async (index: number) => {
+    const entry = tokens[index]
+    setVerifyingIndex(index)
+    try {
+      const result = await window.api.github.verifyToken(entry.scope, entry.token)
+      updateEntry(index, {
+        expiresAt: result.expiresAt ?? entry.expiresAt,
+        lastCheck: { at: new Date().toISOString(), ok: result.ok, message: result.message }
+      })
+    } catch (e) {
+      updateEntry(index, {
+        lastCheck: { at: new Date().toISOString(), ok: false, message: (e as Error).message }
+      })
+    } finally {
+      setVerifyingIndex(null)
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      {tokens.length === 0 && (
+        <p className="text-xs text-gray-500">
+          トークンが未登録です。「トークンを追加」から owner 単位で登録してください。
+        </p>
+      )}
+
+      {tokens.map((entry, index) => {
+        const expiration = entry.expiresAt ? formatExpiration(entry.expiresAt) : null
+        return (
+          <div key={index} className="bg-gray-750 border border-gray-700 rounded p-3 space-y-2">
+            <div className="flex gap-2 items-center">
+              <input
+                type="text"
+                value={entry.scope}
+                onChange={(e) => updateEntry(index, { scope: e.target.value })}
+                placeholder="owner または owner/repo"
+                className={`${inputClass} w-56 text-xs`}
+              />
+              <input
+                type="password"
+                value={entry.token}
+                onChange={(e) => updateEntry(index, { token: e.target.value })}
+                placeholder="github_pat_xxxxxxxx"
+                className={`${inputClass} flex-1 text-xs`}
+              />
+              <button
+                type="button"
+                onClick={() => handleVerify(index)}
+                disabled={verifyingIndex !== null || !entry.scope.trim() || !entry.token.trim()}
+                className="px-3 py-1.5 rounded text-xs bg-gray-600 hover:bg-gray-500 text-white whitespace-nowrap disabled:opacity-40"
+              >
+                {verifyingIndex === index ? '確認中...' : '疎通確認'}
+              </button>
+              <button
+                type="button"
+                onClick={() => onChange(tokens.filter((_, i) => i !== index))}
+                className="px-2 py-1.5 rounded text-xs bg-red-900/60 hover:bg-red-800 text-red-200"
+              >
+                削除
+              </button>
+            </div>
+
+            {(expiration || entry.lastCheck) && (
+              <div className="text-xs space-y-0.5">
+                {expiration && <p className={expiration.className}>{expiration.text}</p>}
+                {entry.lastCheck && (
+                  <p className={entry.lastCheck.ok ? 'text-green-400' : 'text-red-400'}>
+                    {entry.lastCheck.ok ? '✓ ' : '✗ '}
+                    {entry.lastCheck.message}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      <button
+        type="button"
+        onClick={() => onChange([...tokens, { scope: '', token: '' }])}
+        className="px-3 py-1.5 rounded text-xs bg-gray-600 hover:bg-gray-500 text-white"
+      >
+        + トークンを追加
+      </button>
+
+      {uncoveredOwners.length > 0 && (
+        <p className={`text-xs ${legacyPatConfigured ? 'text-gray-500' : 'text-yellow-400'}`}>
+          {legacyPatConfigured
+            ? `トークン未登録の owner: ${uncoveredOwners.join(', ')}（下の共通PATで動作します）`
+            : `トークン未登録の owner: ${uncoveredOwners.join(', ')} — このownerのPRステータス取得・レビュー依頼PR同期は行われません`}
         </p>
       )}
     </div>
@@ -969,9 +1121,26 @@ export default function SettingsPage() {
           </section>
         ))}
 
-        {/* GitHub PAT */}
+        {/* GitHub トークン（fine-grained） */}
         <section>
-          <h2 className="text-sm font-semibold text-gray-300 mb-2">GitHub Personal Access Token</h2>
+          <h2 className="text-sm font-semibold text-gray-300 mb-2">GitHub トークン（fine-grained）</h2>
+          <p className="text-xs text-gray-500 mb-3">
+            owner または owner/repo 単位でトークンを登録します。使用時は owner/repo → owner → 共通PAT の順に解決されます。
+            fine-grained token に必要な権限は Pull requests: Read / Metadata: Read（GitHub Issue チケット利用時は Issues: Read も）です。
+          </p>
+          <GitHubTokenList
+            tokens={settings.githubTokens ?? []}
+            onChange={(githubTokens) => setSettings((prev) => ({ ...prev, githubTokens }))}
+            legacyPatConfigured={!!settings.githubPat?.trim()}
+            inputClass={inputClass}
+          />
+        </section>
+
+        {/* GitHub PAT（共通フォールバック） */}
+        <section>
+          <h2 className="text-sm font-semibold text-gray-300 mb-2">
+            GitHub Personal Access Token（共通フォールバック）
+          </h2>
           <input
             type="password"
             value={settings.githubPat ?? ''}
@@ -979,7 +1148,10 @@ export default function SettingsPage() {
             placeholder="ghp_xxxxxxxxxxxx"
             className={`${inputClass} w-full max-w-md`}
           />
-          <p className="text-xs text-gray-500 mt-1">PR ステータス取得・レビュー依頼PR同期に使用（暗号化して保存）</p>
+          <p className="text-xs text-gray-500 mt-1">
+            上のトークンで解決できない owner に対して使用します（暗号化して保存）。
+            fine-grained token へ完全移行する場合は空にしてください。
+          </p>
         </section>
 
         {/* GitHub PR 自動同期 */}

@@ -8,7 +8,8 @@ import type {
   ContextInfo,
   LaunchMode,
   ClaudeModel,
-  NavigationPayload
+  NavigationPayload,
+  GitHubTokenVerifyResult
 } from '../../src/types/ipc'
 
 const api = {
@@ -125,10 +126,13 @@ const api = {
   },
 
   github: {
-    syncPRs: (): Promise<{ created: number; total: number }> =>
+    syncPRs: (): Promise<{ created: number; total: number; authErrors: string[] }> =>
       ipcRenderer.invoke('github:sync-prs'),
     dismissPr: (taskId: string): Promise<void> =>
-      ipcRenderer.invoke('github:dismiss-pr', taskId)
+      ipcRenderer.invoke('github:dismiss-pr', taskId),
+    verifyToken: (scope: string, token: string): Promise<GitHubTokenVerifyResult> =>
+      ipcRenderer.invoke('github:verify-token', { scope, token }),
+    repoOwners: (): Promise<string[]> => ipcRenderer.invoke('github:repo-owners')
   },
 
   ticket: {

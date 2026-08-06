@@ -29,10 +29,35 @@ export type LaunchMode = 'normal' | 'auto' | 'bypass' | 'plan'
 // （一覧は /v1/models から動的取得。取得失敗時は opus/sonnet/haiku にフォールバック）
 export type ClaudeModel = 'default' | (string & {})
 
+// GitHub トークン（fine-grained personal access token）
+// scope は "owner" または "owner/repo"。トークンは owner/repo → owner の順に引き、
+// どちらにも該当しない場合は全owner共通の githubPat にフォールバックする。
+export type GitHubTokenEntry = {
+  scope: string  // "owner" または "owner/repo"（小文字に正規化して比較）
+  token: string  // safeStorageで暗号化して保存
+  expiresAt?: string  // 有効期限（ISO8601）。github-authentication-token-expiration ヘッダ由来
+  lastCheck?: {  // 最終疎通確認の結果（表示用・平文）
+    at: string
+    ok: boolean
+    message: string
+  }
+}
+
+// トークン疎通確認の結果
+export type GitHubTokenVerifyResult = {
+  ok: boolean
+  message: string
+  login?: string
+  expiresAt?: string
+  repositories?: string[]  // scope に一致するアクセス可能リポジトリ
+  truncated?: boolean  // アクセス可能リポジトリが多く列挙を打ち切ったか
+}
+
 // アプリ設定
 export type AppSettings = {
   repos: RepoConfig[]
-  githubPat?: string  // safeStorageで暗号化して保存
+  githubPat?: string  // 全owner共通のフォールバックPAT（safeStorageで暗号化して保存）
+  githubTokens?: GitHubTokenEntry[]  // owner / owner/repo 単位のトークン（safeStorageで暗号化して保存）
   githubUsername?: string  // GitHub ユーザー名（PR自動同期用）
   githubPrSyncIntervalMin?: number  // PR同期間隔（分、デフォルト5）
   useDangerouslySkipPermissions?: boolean  // claude --dangerously-skip-permissions で起動するか
@@ -134,8 +159,10 @@ export type IpcChannels = {
   'images:delete': [string[], void]
 
   // GitHub
-  'github:sync-prs': [void, { created: number; total: number }]
+  'github:sync-prs': [void, { created: number; total: number; authErrors: string[] }]
   'github:dismiss-pr': [string, void]
+  'github:verify-token': [{ scope: string; token: string }, GitHubTokenVerifyResult]
+  'github:repo-owners': [void, string[]]
 
   // Ticket
   'ticket:fetch': [string, TicketFetchResult]
@@ -228,8 +255,10 @@ export type WindowApi = {
     delete: (paths: string[]) => Promise<void>
   }
   github: {
-    syncPRs: () => Promise<{ created: number; total: number }>
+    syncPRs: () => Promise<{ created: number; total: number; authErrors: string[] }>
     dismissPr: (taskId: string) => Promise<void>
+    verifyToken: (scope: string, token: string) => Promise<GitHubTokenVerifyResult>
+    repoOwners: () => Promise<string[]>
   }
   ticket: {
     fetch: (url: string) => Promise<TicketFetchResult>
