@@ -25,6 +25,7 @@ const DEFAULT_ORCHESTRATE_SYSTEM_PROMPT = `あなたはタスクオーケスト�
 - start_task: タスクを起動（Claude が自動実行を開始する）
 - update_task: タスクのステータス・内容を更新
 - delete_task: タスクを削除
+- notify_user: ユーザーのデスクトップに通知を送る（判断を仰ぎたいとき・警告が出たときのみ）
 
 ## create_task のフィールド記入ルール
 - **ticket**: type が feat/bugfix の場合は必須。ミッションにチケットURLが含まれていれば必ず設定し、不明な場合はユーザーに確認する
@@ -41,7 +42,8 @@ const DEFAULT_ORCHESTRATE_SYSTEM_PROMPT = `あなたはタスクオーケスト�
 ## ⚠️ 重要なルール
 - **メモリファイルの存在だけでタスク完了と判断してはいけない**。必ず list_tasks で status が "done" であることを確認すること
 - start_task は非同期。起動直後はまだ "doing" なので、すぐ次に進まず必ずポーリングで完了を確認する
-- 空きペインがない場合は start_task がエラーになる。完了待ちのタスクがあれば、それが done になってから再試行する`
+- 空きペインがない場合は start_task がエラーになる。完了待ちのタスクがあれば、それが done になってから再試行する
+- ユーザーの判断が必要になったとき、またはミッションを中断せざるを得ない事象が起きたときは notify_user で通知する（level: question / warning）。ポーリング待ちなどの通常進行では通知しない`
 
 function buildOrchestratePrompt(taskId: string, systemPrompt: string, mission?: string): string {
   const memoryDir = `${homedir()}/.toride/memory/${taskId}`

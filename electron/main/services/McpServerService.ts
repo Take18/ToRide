@@ -8,6 +8,33 @@ import type { Task } from '../../../src/types/task.js'
 import type { AppSettings, ClaudeModel, LaunchMode } from '../../../src/types/ipc.js'
 import { resolveDevServerUrl } from '../../../src/utils/devServerUrl.js'
 
+export type NotifyLevel = 'info' | 'question' | 'warning'
+
+export type McpUserNotification = {
+  level: NotifyLevel
+  message: string
+  /** 通知タイトルに使う見出し（タスクタイトル等）。特定できなければ undefined */
+  title?: string
+  /** クリック時にジャンプするタスク。特定できなければ undefined */
+  taskId?: string
+}
+
+const NOTIFY_LEVELS: NotifyLevel[] = ['info', 'question', 'warning']
+
+/** タイトル文字列から対象タスクを引く。doing のタスクを優先し、完全一致 → 部分一致で探す */
+const findTaskByTitle = (tasks: Task[], title: string): Task | undefined => {
+  const norm = (s: string) => s.trim().toLowerCase()
+  const target = norm(title)
+  if (!target) return undefined
+  const ordered = [...tasks].sort(
+    (a, b) => Number(b.status === 'doing') - Number(a.status === 'doing')
+  )
+  return (
+    ordered.find((t) => norm(t.title) === target) ??
+    ordered.find((t) => norm(t.title).includes(target) || target.includes(norm(t.title)))
+  )
+}
+
 export class McpServerService {
   constructor(
     localServer: LocalHttpServer,
@@ -15,7 +42,8 @@ export class McpServerService {
     devServerService: DevServerService,
     getSettings: () => AppSettings,
     notifyTasksUpdated: () => void = () => {},
-    startTask?: (taskId: string, launchMode?: LaunchMode, model?: ClaudeModel) => Promise<void>
+    startTask?: (taskId: string, launchMode?: LaunchMode, model?: ClaudeModel) => Promise<void>,
+    notifyUser?: (notification: McpUserNotification) => void
   ) {
     const createServer = (): Server => {
       const server = new Server(
@@ -152,6 +180,41 @@ export class McpServerService {
             },
           },
           {
+            name: 'notify_user',
+            description:
+              'ユーザーのデスクトップに通知を送る。ユーザーの判断・入力を仰ぎたいとき（質問する直前など）や、ユーザーが知るべき警告・重要な結果が出たときに呼ぶ。' +
+              '進捗の逐次報告や、そのまま作業を続行できる内容では呼ばないこと（通知が埋もれて役に立たなくなる）。',
+            inputSchema: {
+              type: 'object' as const,
+              properties: {
+                message: {
+                  type: 'string',
+                  description: '通知の本文。通知欄で読み切れる1〜2文で要点を書く',
+                },
+                level: {
+                  type: 'string',
+                  enum: ['info', 'question', 'warning'],
+                  description:
+                    '通知の種別。question=ユーザーの入力・判断を待っている、warning=注意が必要な事象、info=単なるお知らせ（省略時は info）',
+                },
+                title: {
+                  type: 'string',
+                  description: '通知タイトルに使う短い見出し。省略時は taskTitle / taskId から解決したタスク名が使われる',
+                },
+                taskTitle: {
+                  type: 'string',
+                  description:
+                    '自分が担当しているタスクのタイトル。通知クリックで該当タスクへジャンプさせるために使う。分かる範囲で指定する',
+                },
+                taskId: {
+                  type: 'string',
+                  description: 'タスクID（分かる場合のみ。taskTitle より優先される。list_tasks で確認可能）',
+                },
+              },
+              required: ['message'],
+            },
+          },
+          {
             name: 'stop_dev_server',
             description: '起動中の開発サーバーを停止する',
             inputSchema: {
@@ -275,6 +338,36 @@ export class McpServerService {
               }
               devServerService.start(repoId, paneConfig, serverConfig)
               return { content: [{ type: 'text' as const, text: `started: ${repoId}:${paneId}:${label}` }] }
+            }
+            case 'notify_user': {
+              const { message, level, title, taskTitle, taskId } = args as {
+                message?: string
+                level?: NotifyLevel
+                title?: string
+                taskTitle?: string
+                taskId?: string
+              }
+              if (!notifyUser) {
+                throw new Error('notify_user is not available')
+              }
+              if (typeof message !== 'string' || !message.trim()) {
+                throw new Error('message is required')
+              }
+              const resolvedLevel = level ?? 'info'
+              if (!NOTIFY_LEVELS.includes(resolvedLevel)) {
+                throw new Error(`Invalid level: ${resolvedLevel}. Use one of ${NOTIFY_LEVELS.join(' / ')}`)
+              }
+              const tasks = taskService.list()
+              const task =
+                (taskId ? tasks.find((t) => t.id === taskId) : undefined) ??
+                (taskTitle ? findTaskByTitle(tasks, taskTitle) : undefined)
+              notifyUser({
+                level: resolvedLevel,
+                message: message.trim(),
+                title: title?.trim() || task?.title || taskTitle?.trim() || undefined,
+                taskId: task?.id,
+              })
+              return { content: [{ type: 'text' as const, text: 'notified' }] }
             }
             case 'stop_dev_server': {
               const { repoId, paneId, label } = args as { repoId: string; paneId: string; label: string }
