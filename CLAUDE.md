@@ -150,9 +150,10 @@ src/
   - chore: `{directory}`
 - **Stop Hook**: `~/.claude/hooks/stop.sh` でタスク完了を検知・HTTP通知（設定画面からインストール）
 - **Status Line Hook**: `~/.claude/statusline.sh` で各APIレスポンス後にコンテキスト使用量をリアルタイム更新（設定画面からインストール）
-- **MCP サーバー**: `create_task` / `list_tasks` / `list_repos` / `update_task` / `delete_task` / `start_task` / `list_dev_servers` / `start_dev_server` / `stop_dev_server` ツールを公開（設定画面からインストール、`~/.claude/settings.json` に自動登録）
+- **MCP サーバー**: `create_task` / `list_tasks` / `list_repos` / `update_task` / `delete_task` / `start_task` / `list_dev_servers` / `start_dev_server` / `stop_dev_server` / `notify_user` ツールを公開（設定画面からインストール、`~/.claude/settings.json` に自動登録）
   - `start_task` は `launchMode` パラメータで起動モードを指定可能
   - `list_dev_servers` は workdir・実行中タスク情報を含めて返却
+  - `notify_user` はタスク内のClaudeセッションが任意のタイミングでデスクトップ通知を送るツール（`message` 必須 / `level`: info・question・warning / `title` / `taskTitle` / `taskId`）。`taskTitle` からタスクを逆引きし、通知クリックで該当タスクへジャンプする
 
 ### Git 連携
 
@@ -286,4 +287,5 @@ src/
 - **orchestrateのpane非占有**: orchestrateタスクは `pane` を空文字にして起動し、ペイン占有判定の対象外（workdirはリポジトリ先頭ペインのパスを借用）
 - **プロンプト注入タイミング**: 固定遅延ではなくTUI起動検知ベースで注入し自動送信
 - **PR URL検出**: ターミナル出力スキャンではなくStatus Line Hookのペイロードから検出
+- **notify_userのタスク解決**: セッションが自分のタスクIDを知らなくても通知できるよう、`taskTitle` からdoingタスク優先で完全一致→部分一致で逆引きする。解決できなければ通知は出しクリック時はウィンドウフォーカスのみ
 - **モデル一覧**: `/v1/models` から動的取得し、失敗時は opus/sonnet/haiku にフォールバック（ModelListService）

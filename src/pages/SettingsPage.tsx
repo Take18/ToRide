@@ -256,6 +256,7 @@ const DEFAULT_ORCHESTRATE_PROMPT = `あなたはタスクオーケストレー�
 - start_task: タスクを起動（Claude が自動実行を開始する）
 - update_task: タスクのステータス・内容を更新
 - delete_task: タスクを削除
+- notify_user: ユーザーのデスクトップに通知を送る（判断を仰ぎたいとき・警告が出たときのみ）
 
 ## 進め方
 1. list_repos でリポジトリIDを確認する
@@ -268,7 +269,8 @@ const DEFAULT_ORCHESTRATE_PROMPT = `あなたはタスクオーケストレー�
 ## ⚠️ 重要なルール
 - メモリファイルの存在だけでタスク完了と判断してはいけない。必ず list_tasks で status が "done" であることを確認すること
 - start_task は非同期。起動直後はまだ "doing" なので、すぐ次に進まず必ずポーリングで完了を確認する
-- 空きペインがない場合は start_task がエラーになる。完了待ちのタスクがあれば、それが done になってから再試行する`
+- 空きペインがない場合は start_task がエラーになる。完了待ちのタスクがあれば、それが done になってから再試行する
+- ユーザーの判断が必要になったとき、またはミッションを中断せざるを得ない事象が起きたときは notify_user で通知する（level: question / warning）。ポーリング待ちなどの通常進行では通知しない`
 
 type DeleteTarget =
   | { kind: 'repo'; repoIndex: number }
@@ -873,6 +875,7 @@ export default function SettingsPage() {
             インストールすると、Claude Code から <code className="text-gray-300">create_task</code> /
             <code className="text-gray-300"> list_tasks</code> /
             <code className="text-gray-300"> update_task</code> ツールでタスクを直接操作できます。
+            <code className="text-gray-300"> notify_user</code> でセッション側から任意のタイミングでデスクトップ通知を送れます。
             インストール後は Claude Code を再起動してください。
           </p>
           <div className="bg-gray-800 rounded-lg p-4 space-y-3">

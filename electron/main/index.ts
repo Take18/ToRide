@@ -13,7 +13,7 @@ import { DismissedPrService } from './services/DismissedPrService'
 import { LocalHttpServer } from './services/LocalHttpServer'
 import { StopHookService } from './services/StopHookService'
 import { ContextLineService } from './services/ContextLineService'
-import { McpServerService } from './services/McpServerService'
+import { McpServerService, type McpUserNotification } from './services/McpServerService'
 import { ModelListService } from './services/ModelListService'
 import { McpHookService } from './services/McpHookService'
 import { importImages, deleteImages } from './services/ImageStore'
@@ -317,9 +317,31 @@ app.whenReady().then(() => {
     getSettings,
     stopHookService,
   })
+  const NOTIFY_LEVEL_LABEL: Record<McpUserNotification['level'], string> = {
+    info: 'お知らせ',
+    question: '入力待ち',
+    warning: '注意',
+  }
+  const notifyUserFromMcp = ({ level, message, title, taskId }: McpUserNotification) => {
+    const { notificationsEnabled = true } = getSettings()
+    if (!notificationsEnabled) return
+    const label = NOTIFY_LEVEL_LABEL[level]
+    const notification = new Notification({
+      title: title ? `[${label}] ${title}` : `[${label}]`,
+      body: message,
+      urgency: level === 'warning' ? 'critical' : 'normal',
+    })
+    notification.on('click', () => {
+      const win = getWindow()
+      win?.show()
+      win?.focus()
+      if (taskId) win?.webContents.send('navigation:goto', { type: 'task', taskId })
+    })
+    notification.show()
+  }
   new McpServerService(localHttpServer, taskService, devServerService, getSettings, () => {
     getWindow()?.webContents.send('tasks:updated')
-  }, startTaskFn)
+  }, startTaskFn, notifyUserFromMcp)
   const initialPort = getSettings().stopHookPort ?? 39457
   localHttpServer.start(initialPort).catch((e) => {
     console.error('[LocalHttpServer] failed to start:', e)
