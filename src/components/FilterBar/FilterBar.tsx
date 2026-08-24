@@ -8,7 +8,8 @@ const TASK_TYPES: { value: TaskType; label: string; color: string }[] = [
   { value: 'review', label: 'review', color: 'bg-yellow-600' },
   { value: 'bugfix', label: 'bugfix', color: 'bg-green-600' },
   { value: 'research', label: 'research', color: 'bg-cyan-600' },
-  { value: 'chore', label: 'chore', color: 'bg-gray-600' }
+  { value: 'chore', label: 'chore', color: 'bg-gray-600' },
+  { value: 'orchestrate', label: 'orchestrate', color: 'bg-orange-600' }
 ]
 
 type Props = {
