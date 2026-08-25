@@ -248,12 +248,16 @@ export class SessionRotationService {
     }
 
     // --- 本文 write → エコー検証 → \r ---
+    // ここから write までの間に await を挟まないこと。
+    // startEchoBuffer がバッファを空にするので、照合対象は「この write 以降に受信したデータ」だけになる。
+    // await を挟むと前ターンの残骸が混入し、入力欄に入っていないのに照合が通る偽陽性が起きる
+    // （＝対話プロンプト表示中に \r を送ってしまう）
     this.startEchoBuffer(taskId, state)
     state.instructionSentAt = Date.now()
     this.deps.terminalService.write(taskId, instruction)
     await new Promise((r) => setTimeout(r, ECHO_WAIT_MS))
 
-    const echoed = this.verifyEcho(state, handoffPath)
+    const echoed = this.verifyEcho(state, handoffPath, instruction)
     this.stopEchoBuffer(state)
     if (!echoed) {
       state.echoFailStreak += 1
@@ -443,10 +447,24 @@ export class SessionRotationService {
    * CJK は TUI 上で全角幅として描画され、折り返し位置の計算が半角と異なるため照合対象から外す。
    * 折り返しを吸収するため、両側から空白・改行をすべて除去してから照合する。
    */
-  private verifyEcho(state: TaskState, handoffPath: string): boolean {
+  private verifyEcho(state: TaskState, handoffPath: string, instruction: string): boolean {
     const needle = normalize(handoffPath).slice(-ECHO_TAIL_LEN)
     if (!needle) return false
-    return normalize(state.echoBuffer).includes(needle)
+    const haystack = normalize(state.echoBuffer)
+    const matched = haystack.includes(needle)
+
+    // 閾値(ECHO_TAIL_LEN)は実測で決める必要があるため、判定に使った材料をそのまま残す。
+    // occurrences: 指示文にはパスが2回現れるので、1回だけなら別の出力に由来する疑いがある
+    console.log('[SessionRotation] echo check:', JSON.stringify({
+      matched,
+      needle,
+      occurrences: haystack.split(needle).length - 1,
+      bufferLen: haystack.length,
+      instructionLen: normalize(instruction).length,
+      bufferTail: haystack.slice(-200),
+    }))
+
+    return matched
   }
 
   private isHandoffWritten(handoffPath: string, sentAt: number): boolean {
