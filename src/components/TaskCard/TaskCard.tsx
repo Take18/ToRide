@@ -209,6 +209,20 @@ function DoneDetail({ task, onButtonKeyDown }: { task: RuntimeTask; onButtonKeyD
 }
 
 export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode = 'normal', availableModels, onEdit, onNavigate }: Props) {
+  const [rotating, setRotating] = useState(false)
+  const rotationCount = task.rotation?.history?.length ?? 0
+
+  const handleRotateNow = async () => {
+    setRotating(true)
+    try {
+      await window.api.rotation.rotateNow(task.id)
+    } catch (e) {
+      console.error('[TaskCard] rotateNow failed:', e)
+    } finally {
+      setRotating(false)
+    }
+  }
+
   const models = availableModels && availableModels.length > 0 ? availableModels : FALLBACK_MODELS
   const tasks = useTaskStore((s) => s.tasks)
   const startTask = useTaskStore((s) => s.startTask)
@@ -456,6 +470,35 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
               used={task.contextUsed}
               limit={task.contextLimit}
             />
+
+            {rotationCount > 0 && (
+              <div className="text-xs text-gray-400">
+                ローテーション: <span className="text-gray-300">#{rotationCount}</span>
+                {task.rotationBaseline != null && (
+                  <span className="text-gray-500"> / 開始時 {task.rotationBaseline}%</span>
+                )}
+              </div>
+            )}
+
+            {task.rotationDisabledReason && (
+              <div className="text-xs rounded border border-red-700 bg-red-900/30 text-red-200 px-2 py-1.5 leading-relaxed">
+                自動ローテーション停止: {task.rotationDisabledReason}
+              </div>
+            )}
+
+            {task.rotationPending && (
+              <div className="text-xs rounded border border-yellow-700 bg-yellow-900/30 text-yellow-100 px-2 py-1.5 space-y-1.5 leading-relaxed">
+                <div>ローテーション保留: {task.rotationHoldMessage}</div>
+                <button
+                  onClick={handleRotateNow}
+                  onKeyDown={handleButtonKeyDown}
+                  disabled={rotating}
+                  className="px-2 py-1 rounded text-xs bg-yellow-700 hover:bg-yellow-600 disabled:opacity-50 text-white"
+                >
+                  {rotating ? '実行中...' : '今すぐローテーション'}
+                </button>
+              </div>
+            )}
 
             <div className="flex flex-wrap items-center gap-2 mt-2 whitespace-nowrap">
               <button

@@ -1,12 +1,14 @@
 import { ipcMain, type BrowserWindow } from 'electron'
 import type { TerminalService } from '../services/TerminalService'
 import type { StopHookService } from '../services/StopHookService'
+import type { SessionRotationService } from '../services/SessionRotationService'
 import type { TerminalDataEvent } from '../../../src/types/ipc'
 
 export function registerTerminalHandlers(
   terminalService: TerminalService,
   getWindow: () => BrowserWindow | null,
-  stopHookService?: StopHookService
+  stopHookService?: StopHookService,
+  rotationService?: SessionRotationService
 ): void {
   ipcMain.handle(
     'terminal:start',
@@ -42,6 +44,7 @@ export function registerTerminalHandlers(
     try {
       terminalService.kill(taskId)
       stopHookService?.removeTaskCallback(taskId)
+      rotationService?.clear(taskId)
     } catch (error) {
       throw new Error(`Failed to kill terminal: ${(error as Error).message}`)
     }

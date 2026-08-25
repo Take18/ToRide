@@ -29,7 +29,8 @@ type HookMatcher = { matcher?: string; hooks: HookEntry[] }
 type ClaudeSettings = { hooks?: { Stop?: HookMatcher[] }; [key: string]: unknown }
 
 export class StopHookService {
-  private callbacks = new Map<string, () => void>()
+  // 1タスクに複数の購読者がいる（タスク完了通知 / SessionRotationService の idle 検知）ため Set で持つ
+  private callbacks = new Map<string, Set<() => void>>()
 
   constructor(localServer: LocalHttpServer) {
     localServer.addRoute('/task-done', (body, res) => {
@@ -37,10 +38,17 @@ export class StopHookService {
         const { taskId } = JSON.parse(body) as { taskId?: string }
         if (taskId) {
           // ターン終了のたびに通知するため、コールバックは削除せず維持する
-          // （削除は removeTaskCallback / 上書き登録に任せる）
-          const cb = this.callbacks.get(taskId)
-          if (cb) {
-            cb()
+          // （削除は removeTaskCallback / 購読解除関数に任せる）
+          const cbs = this.callbacks.get(taskId)
+          if (cbs) {
+            // 実行中に購読解除されても走査が壊れないようコピーしてから回す
+            for (const cb of [...cbs]) {
+              try {
+                cb()
+              } catch (e) {
+                console.error('[StopHookService] callback failed:', e)
+              }
+            }
           }
         }
         res.writeHead(200)
@@ -52,10 +60,23 @@ export class StopHookService {
     })
   }
 
-  onTaskComplete(taskId: string, cb: () => void): void {
-    this.callbacks.set(taskId, cb)
+  /** 購読を登録し、解除用の関数を返す（ContextLineService.onContextUpdate と同じ規約） */
+  onTaskComplete(taskId: string, cb: () => void): () => void {
+    let set = this.callbacks.get(taskId)
+    if (!set) {
+      set = new Set()
+      this.callbacks.set(taskId, set)
+    }
+    set.add(cb)
+    return () => {
+      const current = this.callbacks.get(taskId)
+      if (!current) return
+      current.delete(cb)
+      if (current.size === 0) this.callbacks.delete(taskId)
+    }
   }
 
+  /** 当該タスクの購読をすべて破棄する（ターミナル kill 時など） */
   removeTaskCallback(taskId: string): void {
     this.callbacks.delete(taskId)
   }

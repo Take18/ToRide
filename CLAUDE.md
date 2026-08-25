@@ -43,6 +43,7 @@ electron/
       LocalHttpServer.ts  # 共有HTTPサーバー（addRoute()で複数エンドポイント登録）
       StopHookService.ts  # Stop Hook管理・/task-doneエンドポイント
       ContextLineService.ts # Status Line Hook管理・/context-updateエンドポイント
+      SessionRotationService.ts # セッションローテーション（閾値検知・handoff完了検知・再起動）
       McpServerService.ts # MCPサーバー（タスクCRUD・タスク起動・開発サーバー制御ツールを公開）
       ModelListService.ts # /v1/models からのモデル一覧取得
       McpHookService.ts   # ~/.claude/settings.json のmcpServers自動管理
@@ -150,10 +151,11 @@ src/
   - chore: `{directory}`
 - **Stop Hook**: `~/.claude/hooks/stop.sh` でタスク完了を検知・HTTP通知（設定画面からインストール）
 - **Status Line Hook**: `~/.claude/statusline.sh` で各APIレスポンス後にコンテキスト使用量をリアルタイム更新（設定画面からインストール）
-- **MCP サーバー**: `create_task` / `list_tasks` / `list_repos` / `update_task` / `delete_task` / `start_task` / `list_dev_servers` / `start_dev_server` / `stop_dev_server` / `notify_user` ツールを公開（設定画面からインストール、`~/.claude/settings.json` に自動登録）
+- **MCP サーバー**: `create_task` / `list_tasks` / `list_repos` / `update_task` / `delete_task` / `start_task` / `list_dev_servers` / `start_dev_server` / `stop_dev_server` / `notify_user` / `get_rotation_status` ツールを公開（設定画面からインストール、`~/.claude/settings.json` に自動登録）
   - `start_task` は `launchMode` パラメータで起動モードを指定可能
   - `list_dev_servers` は workdir・実行中タスク情報を含めて返却
   - `notify_user` はタスク内のClaudeセッションが任意のタイミングでデスクトップ通知を送るツール（`message` 必須 / `level`: info・question・warning / `title` / `taskTitle` / `taskId`）。`taskTitle` からタスクを逆引きし、通知クリックで該当タスクへジャンプする
+  - `get_rotation_status` はセッションローテーションの状態（使用率・閾値・回数・履歴・保留/停止）を返す。`update_task` の `rotation` で設定を変更できる
 
 ### Git 連携
 
@@ -170,6 +172,21 @@ src/
 - **デスクトップ通知**: 80%到達時 / 90%到達時 / タスク完了時（通知クリックで関連画面へジャンプ）
 - **リアルタイム更新**: Status Line Hook 経由で各APIレスポンス後に即時反映（stdout パースはフォールバック）
   - used_percentageベースで計算、セッション最大値を追跡して逆行防止
+
+### セッションローテーション
+
+auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」ため、**compact ではなくセッションを作り直して引き継ぐ**方式。長時間走るタスク（常駐オーケストレータ・長い実タスク）向けの opt-in 機能。
+
+- **閾値検知**: コンテキスト使用率が `threshold`（既定60%）に到達したら開始
+- **handoff 指示**: 引き継ぎファイルを書かせる指示をPTYに送信。指示文には「ローテーション」という語を使わず、*終了する / 会話履歴は渡らない / このファイルだけが渡る*を平文で明示する
+- **`\r` の送信条件**: 本文を write → 200ms → **入力欄にエコーされたか検証** してから Enter を送る。エコーがなければ Enter を送らず保留。`AskUserQuestion` / `ExitPlanMode` などの対話プロンプトを誤承認しないための必須要件
+- **完了検知（AND条件）**: Stop Hook 発火 ∧ handoffファイル存在 ∧ mtime > 指示送信時刻。**3条件が揃うまで絶対に kill しない**
+- **タイムアウト**: 600秒。**旧セッションは kill せず**通知のみ出して保留。タスクカードから手動ローテーションを実行できる
+- **新セッション起動**: `--resume` ではなく新しい sessionId を採番。`git checkout` はスキップし、bootPrompt を通常の起動プロンプトの**末尾に追加**（置換ではない）
+- **ガード（症状側）**: 起動から10分未満はローテーションしない / 直近1時間に3回を超えたら自動停止
+- **ガード（原因側）**: 新セッションの最初のターン終了時点の使用率を `baseline` として記録し、`threshold * 0.8` を超えたら自動停止（handoff肥大の検知）。handoffが8KB超なら警告
+- **通知**: rotation有効タスクでは80%/90%通知を抑制。ただし**保留・停止・中止の通知は必ず出す**（無音が「正常」を意味するのを防ぐため）
+- **履歴**: `rotation.history` に回数・時刻・理由を記録。`{rotationCount}` として bootPrompt に展開
 
 ### ペイン・開発サーバー・複数リポジトリ
 
@@ -243,6 +260,8 @@ src/
 | `useAutoMode` | claude起動時に`--permission-mode auto`を付加 |
 | `promptTemplates` | タスクタイプ別プロンプトテンプレート |
 | `orchestrateSystemPrompt` | orchestrateタスク起動時に先頭に付与するシステムプロンプト（未設定時はデフォルト） |
+| `rotationDefaults` | セッションローテーションのグローバル既定値（enabled / threshold / handoffPath / bootPrompt）。タスク側が未指定のキーだけフォールバック |
+| `rotationHandoffInstruction` | handoffを書かせる指示文のテンプレート（変数: `{used}` `{handoffPath}`） |
 | `notificationsEnabled` | デスクトップ通知の有効/無効（デフォルトtrue） |
 | `stopHookPort` | ローカルHTTPサーバーのポート（デフォルト39457） |
 | `pluginSettings` | チケットプラグイン設定（暗号化フィールドはsafeStorage管理） |
@@ -289,3 +308,9 @@ src/
 - **PR URL検出**: ターミナル出力スキャンではなくStatus Line Hookのペイロードから検出
 - **notify_userのタスク解決**: セッションが自分のタスクIDを知らなくても通知できるよう、`taskTitle` からdoingタスク優先で完全一致→部分一致で逆引きする。解決できなければ通知は出しクリック時はウィンドウフォーカスのみ
 - **モデル一覧**: `/v1/models` から動的取得し、失敗時は opus/sonnet/haiku にフォールバック（ModelListService）
+- **ローテーション後のコンテキスト追跡リセット**: `ClaudeService.fireContextUpdate` は単調増加ゲート（`used <= prevMax` を捨てる）を持つため、新セッションの小さい値が全て捨てられる。`resetContextTracking()` を呼ばないと閾値判定が二度と発火しない
+- **StopHookのコールバックは `Map<taskId, Set<cb>>`**: 1タスクに複数の購読者（タスク完了通知 / ローテーションのidle・handoff検知）がいるため。起動のたびに `removeTaskCallback` してから登録し直す（Set化で積み上がるのを防ぐ）
+- **エコー検証の照合対象**: 日本語本文ではなく `handoffPath`（ASCII）の末尾。CJKはTUI上で全角幅として描画され折り返し計算が半角と異なるため。照合前に空白・改行を全除去して正規化する。指示文の最終行を `{handoffPath}` で終わらせているのはこのため
+- **ローテーションのバッファ**: `ClaudeService.cleanBuffers` は `resetContextTracking()` でクリアされるため流用せず、`SessionRotationService` が `terminalService.onData` に自前リスナを持つ
+- **rotation設定の保存先**: `BaseTask.rotation` は `data` JSON カラム。ランタイム状態（保留・baseline等）は `task_runtime.rotation_state` にJSONで保存（再起動でクリア）
+- **`task_runtime` の upsert**: 起動時に `DELETE FROM task_runtime` するため既存タスクの行が消える。`TaskService.update()` は runtime 更新前に `INSERT OR IGNORE` で行を作る（無いと pid / contextUsed 等の UPDATE が全て空振りする）
