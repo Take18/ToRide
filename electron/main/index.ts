@@ -16,6 +16,7 @@ import { ContextLineService } from './services/ContextLineService'
 import { McpServerService, type McpUserNotification } from './services/McpServerService'
 import { ModelListService } from './services/ModelListService'
 import { McpHookService } from './services/McpHookService'
+import { SessionRotationService } from './services/SessionRotationService'
 import { importImages, deleteImages } from './services/ImageStore'
 import { PluginRegistry } from './plugins/PluginRegistry'
 import { PLUGIN_CATALOG } from './plugins/catalog'
@@ -296,7 +297,16 @@ app.whenReady().then(() => {
   const stopHookService = new StopHookService(localHttpServer)
   const contextLineService = new ContextLineService(localHttpServer)
   const mcpHookService = new McpHookService()
-  const claudeService = new ClaudeService(terminalService, getSettings, contextLineService, getWindow)
+  // rotationService は startTaskFn に依存し、startTaskFn は claudeService に依存するため、
+  // claudeService へは遅延参照のクロージャで渡す（生成順の循環を避ける）
+  let rotationService: SessionRotationService | null = null
+  const claudeService = new ClaudeService(
+    terminalService,
+    getSettings,
+    contextLineService,
+    getWindow,
+    (taskId) => rotationService?.isRotationEnabled(taskId) ?? false
+  )
   contextLineService.onPrDetected(({ taskId, prUrl }) => {
     try {
       // reviewタスクはレビュー対象PRをurlに持つため、検知したPRを紐付けない
@@ -317,6 +327,19 @@ app.whenReady().then(() => {
     getSettings,
     stopHookService,
   })
+  rotationService = new SessionRotationService({
+    taskService,
+    claudeService,
+    terminalService,
+    stopHookService,
+    gitService,
+    getSettings,
+    getWindow,
+    startTask: startTaskFn,
+  })
+  // 閾値判定はコンテキスト更新に相乗りする（Status Line Hook 経由が主系）
+  claudeService.onContextUpdate((info) => rotationService?.onContextUpdate(info))
+
   const NOTIFY_LEVEL_LABEL: Record<McpUserNotification['level'], string> = {
     info: 'お知らせ',
     question: '入力待ち',
@@ -341,7 +364,7 @@ app.whenReady().then(() => {
   }
   new McpServerService(localHttpServer, taskService, devServerService, getSettings, () => {
     getWindow()?.webContents.send('tasks:updated')
-  }, startTaskFn, notifyUserFromMcp)
+  }, startTaskFn, notifyUserFromMcp, (taskId) => rotationService?.getStatus(taskId) ?? null)
   const initialPort = getSettings().stopHookPort ?? 39457
   localHttpServer.start(initialPort).catch((e) => {
     console.error('[LocalHttpServer] failed to start:', e)
@@ -349,7 +372,7 @@ app.whenReady().then(() => {
 
   // Register IPC handlers
   registerTaskHandlers(taskService, getSettings, getWindow)
-  registerTerminalHandlers(terminalService, getWindow, stopHookService)
+  registerTerminalHandlers(terminalService, getWindow, stopHookService, rotationService ?? undefined)
   registerGitHandlers(gitService)
   const modelListService = new ModelListService()
   registerClaudeHandlers(
@@ -367,6 +390,13 @@ app.whenReady().then(() => {
   ipcMain.handle('hooks:status', () => stopHookService.getHookStatus())
   ipcMain.handle('hooks:install', () => stopHookService.installHook())
   ipcMain.handle('hooks:uninstall', () => stopHookService.uninstallHook())
+
+  // Session Rotation IPC handlers
+  ipcMain.handle('rotation:status', (_, taskId: string) => rotationService?.getStatus(taskId) ?? null)
+  ipcMain.handle('rotation:rotate-now', async (_, taskId: string) => {
+    if (!rotationService) throw new Error('ROTATION_UNAVAILABLE')
+    await rotationService.rotateNow(taskId)
+  })
 
   // MCP Server IPC handlers
   ipcMain.handle('mcp:status', () => mcpHookService.getStatus())

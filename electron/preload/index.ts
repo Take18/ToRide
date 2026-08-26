@@ -8,6 +8,7 @@ import type {
   ContextInfo,
   LaunchMode,
   ClaudeModel,
+  RotationStatus,
   NavigationPayload,
   GitHubTokenVerifyResult
 } from '../../src/types/ipc'
@@ -158,6 +159,12 @@ const api = {
       ipcRenderer.invoke('hooks:statusline-uninstall')
   },
 
+  rotation: {
+    status: (taskId: string): Promise<RotationStatus | null> =>
+      ipcRenderer.invoke('rotation:status', taskId),
+    rotateNow: (taskId: string): Promise<void> =>
+      ipcRenderer.invoke('rotation:rotate-now', taskId),
+  },
   mcp: {
     status: (): Promise<{ installed: boolean; url: string }> =>
       ipcRenderer.invoke('mcp:status'),

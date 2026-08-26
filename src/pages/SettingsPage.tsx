@@ -1051,6 +1051,110 @@ export default function SettingsPage() {
           />
         </section>
 
+        {/* セッションローテーション */}
+        <section>
+          <h2 className="text-sm font-semibold text-gray-300 mb-2">セッションローテーション</h2>
+          <p className="text-xs text-gray-500 mb-3">
+            コンテキストが閾値に達したら引き継ぎファイルを書かせ、書き込みを確認してからセッションを作り直します。
+            <br />
+            ここはタスク単位の設定が未入力だったときのグローバル既定値です。有効化はタスクごとに行います。
+          </p>
+          <div className="space-y-3">
+            <label className="flex items-center gap-2 text-xs text-gray-300">
+              <input
+                type="checkbox"
+                checked={settings.rotationDefaults?.enabled ?? false}
+                onChange={(e) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    rotationDefaults: { ...(prev.rotationDefaults ?? {}), enabled: e.target.checked },
+                  }))
+                }
+                className="accent-blue-500"
+              />
+              既定で有効にする（タスク側で個別に上書き可能）
+            </label>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">引き継ぎファイル (handoffPath)</label>
+              <input
+                type="text"
+                value={settings.rotationDefaults?.handoffPath ?? ''}
+                onChange={(e) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    rotationDefaults: { ...(prev.rotationDefaults ?? {}), handoffPath: e.target.value },
+                  }))
+                }
+                placeholder="~/my-ai/state/orchestrator/handoff.md"
+                className="w-full px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">開始する使用率 (%) — 既定 60</label>
+              <input
+                type="number"
+                min={1}
+                max={99}
+                value={settings.rotationDefaults?.threshold ?? ''}
+                onChange={(e) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    rotationDefaults: {
+                      ...(prev.rotationDefaults ?? {}),
+                      threshold: e.target.value ? Number(e.target.value) : undefined,
+                    },
+                  }))
+                }
+                placeholder="60"
+                className="w-full px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+              />
+            </div>
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-xs text-gray-400">handoff を書かせる指示文</span>
+                <button
+                  type="button"
+                  onClick={() => setSettings((prev) => ({ ...prev, rotationHandoffInstruction: '' }))}
+                  className="text-xs text-gray-500 hover:text-gray-300"
+                >
+                  デフォルトに戻す
+                </button>
+              </div>
+              <p className="text-[11px] text-gray-500 mb-1 leading-relaxed">
+                変数: {'{used}'} {'{handoffPath}'}。
+                最終行を {'{handoffPath}'} で終わらせてください（入力欄へのエコー検証の照合対象を兼ねています）。
+              </p>
+              <textarea
+                value={settings.rotationHandoffInstruction ?? ''}
+                onChange={(e) =>
+                  setSettings((prev) => ({ ...prev, rotationHandoffInstruction: e.target.value }))
+                }
+                placeholder="未入力ならデフォルト文面が使われます"
+                rows={8}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 resize-y font-mono"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">新セッションへの追記文面 (bootPrompt)</label>
+              <p className="text-[11px] text-gray-500 mb-1 leading-relaxed">
+                変数: {'{handoffPath}'} {'{rotationCount}'}。通常の起動プロンプトの末尾に追加されます（置換ではありません）。
+              </p>
+              <textarea
+                value={settings.rotationDefaults?.bootPrompt ?? ''}
+                onChange={(e) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    rotationDefaults: { ...(prev.rotationDefaults ?? {}), bootPrompt: e.target.value },
+                  }))
+                }
+                placeholder="未入力ならデフォルト文面が使われます"
+                rows={5}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 resize-y font-mono"
+              />
+            </div>
+          </div>
+        </section>
+
         {/* プラグイン管理 */}
         {catalog.length > 0 && (
           <section>

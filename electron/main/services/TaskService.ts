@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3'
-import type { Task, RuntimeTask, ArchiveEntry, RuntimeTaskState } from '../../../src/types/task'
+import type { Task, RuntimeTask, ArchiveEntry, RuntimeTaskState, RotationRuntime } from '../../../src/types/task'
 import crypto from 'crypto'
 
 export class TaskService {
@@ -13,7 +13,8 @@ export class TaskService {
     const rows = this.db
       .prepare(
         `SELECT t.id, t.type, t.status, t.title, t.pane, t.data, t.created_at,
-                r.pid, r.workdir, r.context_used, r.context_limit, r.started_at, r.completed_at
+                r.pid, r.workdir, r.context_used, r.context_limit, r.started_at, r.completed_at,
+                r.rotation_state
          FROM tasks t
          LEFT JOIN task_runtime r ON t.id = r.task_id
          ORDER BY t.created_at ASC`
@@ -50,7 +51,26 @@ export class TaskService {
       throw new Error(`Task not found: ${id}`)
     }
 
-    const { pid, workdir, contextUsed, contextLimit, startedAt, completedAt, ...taskFields } = data
+    const {
+      pid, workdir, contextUsed, contextLimit, startedAt, completedAt,
+      rotationPending, rotationHoldReason, rotationHoldMessage,
+      rotationBaseline, rotationDisabledReason,
+      ...taskFields
+    } = data
+    // undefined を渡すこと自体が「クリア」の意味を持つため、値ではなくキーの有無で判定する
+    const rotationRuntimePatch: RotationRuntime = {}
+    let hasRotationPatch = false
+    for (const key of [
+      'rotationPending', 'rotationHoldReason', 'rotationHoldMessage',
+      'rotationBaseline', 'rotationDisabledReason'
+    ] as const) {
+      if (key in data) {
+        ;(rotationRuntimePatch as Record<string, unknown>)[key] = data[key]
+        hasRotationPatch = true
+      }
+    }
+    void rotationPending; void rotationHoldReason; void rotationHoldMessage
+    void rotationBaseline; void rotationDisabledReason
 
     // Update task fields
     if (Object.keys(taskFields).length > 0) {
@@ -92,6 +112,10 @@ export class TaskService {
         .run(new Date().toISOString(), id)
     }
 
+    // 起動時に task_runtime を全削除するため、既存タスクでは行が存在しないことがある。
+    // 行が無いと以降の UPDATE が全て空振りして pid / contextUsed 等が永続化されない
+    this.db.prepare(`INSERT OR IGNORE INTO task_runtime (task_id) VALUES (?)`).run(id)
+
     // Update runtime fields
     if (pid !== undefined) {
       this.db.prepare(`UPDATE task_runtime SET pid = ? WHERE task_id = ?`).run(pid, id)
@@ -118,6 +142,26 @@ export class TaskService {
       this.db
         .prepare(`UPDATE task_runtime SET completed_at = ? WHERE task_id = ?`)
         .run(completedAt, id)
+    }
+
+    // rotation_state は部分更新（既存 JSON にマージ）。undefined を渡したキーは削除される
+    if (hasRotationPatch) {
+      const row = this.db
+        .prepare(`SELECT rotation_state FROM task_runtime WHERE task_id = ?`)
+        .get(id) as { rotation_state: string | null } | undefined
+      let current: RotationRuntime = {}
+      try {
+        current = row?.rotation_state ? (JSON.parse(row.rotation_state) as RotationRuntime) : {}
+      } catch {
+        current = {}
+      }
+      const merged: Record<string, unknown> = { ...current, ...rotationRuntimePatch }
+      for (const k of Object.keys(merged)) {
+        if (merged[k] === undefined) delete merged[k]
+      }
+      this.db
+        .prepare(`UPDATE task_runtime SET rotation_state = ? WHERE task_id = ?`)
+        .run(JSON.stringify(merged), id)
     }
 
     return this.getById(id)!
@@ -169,7 +213,11 @@ export class TaskService {
     const task: RuntimeTask = JSON.parse(row.task_data)
     const { id: taskId, type, status: _status, title, pane, created_at,
             pid: _pid, workdir: _workdir, contextUsed: _cu, contextLimit: _cl,
-            startedAt, completedAt, isArchived: _ia, ...rest } = task
+            startedAt, completedAt, isArchived: _ia,
+            // ランタイム状態は復元しない（rotation 設定本体は data 側の rotation に残る）
+            rotationPending: _rp, rotationHoldReason: _rhr, rotationHoldMessage: _rhm,
+            rotationBaseline: _rb, rotationDisabledReason: _rdr,
+            ...rest } = task
 
     const restore = this.db.transaction(() => {
       this.db
@@ -207,7 +255,8 @@ export class TaskService {
     const row = this.db
       .prepare(
         `SELECT t.id, t.type, t.status, t.title, t.pane, t.data, t.created_at,
-                r.pid, r.workdir, r.context_used, r.context_limit, r.started_at, r.completed_at
+                r.pid, r.workdir, r.context_used, r.context_limit, r.started_at, r.completed_at,
+                r.rotation_state
          FROM tasks t
          LEFT JOIN task_runtime r ON t.id = r.task_id
          WHERE t.id = ?`
@@ -216,6 +265,15 @@ export class TaskService {
 
     if (!row) return null
     return this.rowToRuntimeTask(row)
+  }
+
+  private parseRotationState(raw: string | null | undefined): RotationRuntime {
+    if (!raw) return {}
+    try {
+      return JSON.parse(raw) as RotationRuntime
+    } catch {
+      return {}
+    }
   }
 
   private rowToRuntimeTask(row: Record<string, unknown>): RuntimeTask {
@@ -233,7 +291,8 @@ export class TaskService {
       contextUsed: row.context_used as number | undefined,
       contextLimit: row.context_limit as number | undefined,
       startedAt: row.started_at as string | undefined,
-      completedAt: row.completed_at as string | undefined
+      completedAt: row.completed_at as string | undefined,
+      ...this.parseRotationState(row.rotation_state as string | null | undefined)
     } as RuntimeTask
   }
 }

@@ -61,6 +61,13 @@ export function initDatabase(): Database.Database {
     );
   `)
 
+  // マイグレーション: task_runtime.rotation_state（RotationRuntime を JSON で保持）
+  // 列を1本にまとめることで、項目追加のたびに ALTER TABLE を増やさずに済む
+  const runtimeCols = db.prepare(`PRAGMA table_info(task_runtime)`).all() as Array<{ name: string }>
+  if (!runtimeCols.some((c) => c.name === 'rotation_state')) {
+    db.exec(`ALTER TABLE task_runtime ADD COLUMN rotation_state TEXT`)
+  }
+
   return db
 }
 

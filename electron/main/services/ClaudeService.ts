@@ -17,15 +17,22 @@ export class ClaudeService {
   // 全ソース共通のゲート: ここを通過した最大値より小さい更新は全て捨てる
   private lastEmittedMax: Map<string, number> = new Map()
 
+  // rotation 有効タスクでは 80/90% 通知を抑制する（threshold=60 でローテーションが
+  // 始まった直後に「80%注意」が飛ぶ二重通知を避けるため）。
+  // 抑制しても保留・停止・中止の通知は SessionRotationService 側から必ず出る
+  private isRotationEnabled?: (taskId: string) => boolean
+
   constructor(
     terminalService: TerminalService,
     getSettings: () => Pick<AppSettings, 'notificationsEnabled'>,
     contextLineService?: ContextLineService,
-    getWindow?: () => BrowserWindow | null
+    getWindow?: () => BrowserWindow | null,
+    isRotationEnabled?: (taskId: string) => boolean
   ) {
     this.terminalService = terminalService
     this.getSettings = getSettings
     this.getWindow = getWindow
+    this.isRotationEnabled = isRotationEnabled
     contextLineService?.onContextUpdate((info) => {
       this.fireContextUpdate(info)
     })
@@ -156,6 +163,17 @@ export class ClaudeService {
     return null
   }
 
+  // セッションローテーション後に呼ぶ。
+  // これを呼ばないと lastEmittedMax が旧セッションの高い値のまま張り付き、
+  // 新セッションの使用量が全て fireContextUpdate のゲートで捨てられて
+  // 閾値判定が二度と発火しなくなる（設計書 §3.1）
+  resetContextTracking(taskId: string): void {
+    this.lastEmittedMax.set(taskId, 0)
+    this.maxContextUsed.set(taskId, 0)
+    this.notifiedThresholds.set(taskId, new Set())
+    this.cleanBuffers.set(taskId, '')
+  }
+
   onContextUpdate(callback: ContextUpdateCallback): () => void {
     this.contextCallbacks.add(callback)
     return () => {
@@ -171,6 +189,8 @@ export class ClaudeService {
 
     const { notificationsEnabled = true } = this.getSettings()
     if (!notificationsEnabled) return
+    // rotation 有効タスクは SessionRotationService が通知を持つので二重に出さない
+    if (this.isRotationEnabled?.(info.taskId)) return
 
     if (ratio >= 0.9 && !thresholds.has(90)) {
       thresholds.add(90)

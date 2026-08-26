@@ -98,9 +98,23 @@ type StartTaskDeps = {
   stopHookService?: StopHookService
 }
 
-export function createStartTaskFn(deps: StartTaskDeps): (taskId: string, launchMode?: LaunchMode, model?: ClaudeModel) => Promise<void> {
+export type StartTaskOptions = {
+  /** セッションローテーション時に true。同一ペイン・同一ブランチの続きなので checkout する理由がない */
+  skipCheckout?: boolean
+  /** 通常の起動プロンプトの末尾に連結する文面（rotation の bootPrompt）。置換ではなく追加 */
+  extraPrompt?: string
+}
+
+export type StartTaskFn = (
+  taskId: string,
+  launchMode?: LaunchMode,
+  model?: ClaudeModel,
+  options?: StartTaskOptions
+) => Promise<void>
+
+export function createStartTaskFn(deps: StartTaskDeps): StartTaskFn {
   const { claudeService, taskService, gitService, terminalService, getWindow, getSettings, stopHookService } = deps
-  return async (taskId: string, launchMode?: LaunchMode, model?: ClaudeModel) => {
+  return async (taskId: string, launchMode?: LaunchMode, model?: ClaudeModel, options?: StartTaskOptions) => {
     const tasks = taskService.list()
     const task = tasks.find((t) => t.id === taskId)
     if (!task) throw new Error(`Task not found: ${taskId}`)
@@ -133,7 +147,8 @@ export function createStartTaskFn(deps: StartTaskDeps): (taskId: string, launchM
       resolvedWorkdir = expandPath(freePaneConfig.path)
     }
 
-    if ('branch' in task && task.branch) {
+    // rotation 経由の再起動では checkout しない（未コミット変更の破棄は人の判断が必要なため）
+    if (!options?.skipCheckout && 'branch' in task && task.branch) {
       const baseBranch = 'baseBranch' in task ? task.baseBranch : undefined
       await gitService.checkout(resolvedWorkdir, task.branch, baseBranch)
     }
@@ -150,13 +165,19 @@ export function createStartTaskFn(deps: StartTaskDeps): (taskId: string, launchM
       } else {
         rawPrompt = task.prompt || settings.promptTemplates?.[task.type]
       }
-      const taskPrompt = appendImageSection(rawPrompt ? (task.type === 'orchestrate' ? rawPrompt : interpolateTemplate(rawPrompt, task)) : undefined, task)
+      const basePrompt = appendImageSection(rawPrompt ? (task.type === 'orchestrate' ? rawPrompt : interpolateTemplate(rawPrompt, task)) : undefined, task)
+      // bootPrompt は置換ではなく追加（置換すると orchestrate のシステムプロンプトとメモリ案内が失われる）
+      const taskPrompt = options?.extraPrompt
+        ? [basePrompt, options.extraPrompt].filter(Boolean).join('\n\n')
+        : basePrompt
       const effectiveLaunchMode = resolveLaunchMode(launchMode, task.type === 'research', settings)
       const sessionId = randomUUID()
       claudeService.start(taskId, resolvedWorkdir, taskPrompt, effectiveLaunchMode, undefined, undefined, sessionId, undefined, model)
-      taskService.update(taskId, { sessionId })
+      taskService.update(taskId, { sessionId, lastLaunchMode: effectiveLaunchMode, lastModel: model })
 
       if (stopHookService) {
+        // Set 化により登録が積み上がるため、起動のたびに前回分を破棄する
+        stopHookService.removeTaskCallback(taskId)
         stopHookService.onTaskComplete(taskId, async () => {
           const currentTask = taskService.list().find((t) => t.id === taskId)
           if (!currentTask || currentTask.status === 'done') return
@@ -296,10 +317,12 @@ export function registerClaudeHandlers(
           const effectiveLaunchMode = resolveLaunchMode(launchMode, task.type === 'research', settings)
           const sessionId = randomUUID()
           claudeService.start(taskId, resolvedWorkdir, taskPrompt, effectiveLaunchMode, cols, rows, sessionId, undefined, model)
-          taskService.update(taskId, { sessionId })
+          taskService.update(taskId, { sessionId, lastLaunchMode: effectiveLaunchMode, lastModel: model })
 
           // Stop Hook: タスク完了通知コールバック登録（自動遷移しない）
           if (stopHookService) {
+            // Set 化により登録が積み上がるため、起動のたびに前回分を破棄する
+            stopHookService.removeTaskCallback(taskId)
             stopHookService.onTaskComplete(taskId, async () => {
               const currentTask = taskService.list().find((t) => t.id === taskId)
               if (!currentTask || currentTask.status === 'done') return
@@ -444,9 +467,12 @@ export function registerClaudeHandlers(
           getWindow()?.webContents.send('terminal:reset', taskId)
 
           const effectiveLaunchMode = resolveLaunchMode(launchMode, task.type === 'research', settings)
+          taskService.update(taskId, { lastLaunchMode: effectiveLaunchMode, lastModel: model })
           claudeService.start(taskId, resolvedWorkdir, undefined, effectiveLaunchMode, cols, rows, undefined, sessionId, model)
 
           if (stopHookService) {
+            // Set 化により登録が積み上がるため、起動のたびに前回分を破棄する
+            stopHookService.removeTaskCallback(taskId)
             stopHookService.onTaskComplete(taskId, async () => {
               const currentTask = taskService.list().find((t) => t.id === taskId)
               if (!currentTask || currentTask.status === 'done') return

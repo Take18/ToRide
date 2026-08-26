@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import type { TaskType, RuntimeTask, ReviewTask } from '../../types/task'
+import type { TaskType, RuntimeTask, ReviewTask, RotationConfig } from '../../types/task'
 import type { RepoConfig } from '../../types/ipc'
 import type { TicketProviderMeta } from '../../types/plugin'
 import { useTaskStore } from '../../stores/taskStore'
@@ -23,7 +23,11 @@ const INITIAL_FORM = {
   url: '',
   output: '',
   directory: '',
-  images: [] as string[]
+  images: [] as string[],
+  rotationEnabled: false,
+  rotationHandoffPath: '',
+  rotationThreshold: '',
+  rotationBootPrompt: ''
 }
 
 function taskToForm(task: RuntimeTask) {
@@ -39,7 +43,11 @@ function taskToForm(task: RuntimeTask) {
     url: 'url' in task ? (task.url ?? '') : '',
     output: 'output' in task ? (task.output ?? '') : '',
     directory: 'directory' in task ? (task.directory ?? '') : '',
-    images: task.images ?? []
+    images: task.images ?? [],
+    rotationEnabled: task.rotation?.enabled ?? false,
+    rotationHandoffPath: task.rotation?.handoffPath ?? '',
+    rotationThreshold: task.rotation?.threshold != null ? String(task.rotation.threshold) : '',
+    rotationBootPrompt: task.rotation?.bootPrompt ?? ''
   }
 }
 
@@ -197,7 +205,7 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
 
   if (!isOpen) return null
 
-  const set = (key: string, value: string) => {
+  const set = (key: string, value: string | boolean) => {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
 
@@ -230,6 +238,27 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
     }
   }
 
+  // 未入力のキーは undefined にしてグローバル既定値へフォールバックさせる。
+  // history は設定編集で失わないよう編集前の値を引き継ぐ
+  const buildRotation = (): RotationConfig | undefined => {
+    const threshold = form.rotationThreshold.trim()
+    const parsed = threshold ? Number(threshold) : undefined
+    const rotation: RotationConfig = {
+      ...(editTask?.rotation ?? {}),
+      enabled: form.rotationEnabled,
+      handoffPath: form.rotationHandoffPath.trim() || undefined,
+      threshold: parsed != null && Number.isFinite(parsed) ? parsed : undefined,
+      bootPrompt: form.rotationBootPrompt.trim() || undefined
+    }
+    const isEmpty =
+      !rotation.enabled &&
+      !rotation.handoffPath &&
+      rotation.threshold == null &&
+      !rotation.bootPrompt &&
+      !(rotation.history && rotation.history.length > 0)
+    return isEmpty ? undefined : rotation
+  }
+
   const doSubmit = async () => {
     if (!form.title) return
 
@@ -246,6 +275,7 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
         output: form.output || undefined,
         directory: form.directory || undefined,
         images: form.images,
+        rotation: buildRotation(),
       }
       await updateTask(editTask.id, common)
       if (removedOriginalsRef.current.length > 0) {
@@ -258,7 +288,8 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
         pane: '',
         status: 'will_do' as const,
         ...(form.depends_on ? { depends_on: form.depends_on } : {}),
-        ...(form.images.length > 0 ? { images: form.images } : {})
+        ...(form.images.length > 0 ? { images: form.images } : {}),
+        ...(buildRotation() ? { rotation: buildRotation() } : {})
       }
       switch (form.type) {
         case 'feat':
@@ -610,6 +641,55 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
                 </div>
               </div>
             )}
+
+            {/* セッションローテーション */}
+            <div className="border border-gray-700 rounded p-3 space-y-2">
+              <label className="flex items-center gap-2 text-xs text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={form.rotationEnabled}
+                  onChange={(e) => set('rotationEnabled', e.target.checked)}
+                  className="accent-blue-500"
+                />
+                セッションローテーションを有効にする
+              </label>
+              <p className="text-[11px] text-gray-500 leading-relaxed">
+                コンテキストが閾値に達したら引き継ぎファイルを書かせてセッションを作り直します。
+                空欄の項目は設定画面のグローバル既定値が使われます。
+              </p>
+              <div>
+                <label className={labelClass}>引き継ぎファイル (handoffPath)</label>
+                <input
+                  type="text"
+                  value={form.rotationHandoffPath}
+                  onChange={(e) => set('rotationHandoffPath', e.target.value)}
+                  placeholder="~/my-ai/state/orchestrator/handoff.md"
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>開始する使用率 (%)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={99}
+                  value={form.rotationThreshold}
+                  onChange={(e) => set('rotationThreshold', e.target.value)}
+                  placeholder="60"
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>新セッションへの追記文面 (bootPrompt)</label>
+                <textarea
+                  value={form.rotationBootPrompt}
+                  onChange={(e) => set('rotationBootPrompt', e.target.value)}
+                  placeholder="未入力ならデフォルト文面。変数: {handoffPath} {rotationCount}"
+                  rows={3}
+                  className={inputClass}
+                />
+              </div>
+            </div>
 
             {/* Depends on */}
             <div>

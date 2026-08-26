@@ -1,4 +1,4 @@
-import type { Task, RuntimeTask, ArchiveEntry, RuntimeTaskState, DistributiveOmit } from './task'
+import type { Task, RuntimeTask, ArchiveEntry, RuntimeTaskState, DistributiveOmit, RotationConfig, RotationHistoryEntry, RotationHoldReason } from './task'
 import type { TicketProviderMeta, TicketFetchResult, PluginCatalogEntry } from './plugin'
 
 // pane設定
@@ -71,6 +71,27 @@ export type AppSettings = {
   enabledPlugins?: string[]  // 有効なプラグインIDの一覧
   extraPaths?: string[]  // git hooks等の子プロセスに追加するPATHエントリ
   orchestrateSystemPrompt?: string  // orchestrateタスク起動時に先頭に付与するシステムプロンプト
+  // セッションローテーションのグローバル既定値。
+  // タスク側が未指定のキーだけここにフォールバックする（オブジェクト単位ではなくキー単位）
+  rotationDefaults?: Omit<RotationConfig, 'history'>
+  // handoff を書かせる指示文のテンプレート（未設定時はデフォルト）
+  // 変数: {used} {handoffPath}
+  rotationHandoffInstruction?: string
+}
+
+// セッションローテーションの現在状態
+export type RotationStatus = {
+  enabled: boolean
+  threshold: number
+  handoffPath?: string
+  usedPercent?: number
+  rotationCount: number
+  history: RotationHistoryEntry[]
+  pending: boolean
+  holdReason?: RotationHoldReason
+  holdMessage?: string
+  baseline?: number
+  disabledReason?: string
 }
 
 // Git status
@@ -183,6 +204,10 @@ export type IpcChannels = {
   'hooks:statusline-install': [void, { success: boolean; error?: string }]
   'hooks:statusline-uninstall': [void, { success: boolean; error?: string }]
 
+  // Session Rotation
+  'rotation:status': [string, RotationStatus | null]
+  'rotation:rotate-now': [string, void]
+
   // MCP Server
   'mcp:status': [void, { installed: boolean; url: string }]
   'mcp:install': [void, { success: boolean; error?: string }]
@@ -274,6 +299,10 @@ export type WindowApi = {
     statuslineStatus: () => Promise<{ installed: boolean; path: string; managedByApp: boolean; registeredInSettings: boolean }>
     statuslineInstall: () => Promise<{ success: boolean; error?: string }>
     statuslineUninstall: () => Promise<{ success: boolean; error?: string }>
+  }
+  rotation: {
+    status: (taskId: string) => Promise<RotationStatus | null>
+    rotateNow: (taskId: string) => Promise<void>
   }
   mcp: {
     status: () => Promise<{ installed: boolean; url: string }>

@@ -43,7 +43,8 @@ export class McpServerService {
     getSettings: () => AppSettings,
     notifyTasksUpdated: () => void = () => {},
     startTask?: (taskId: string, launchMode?: LaunchMode, model?: ClaudeModel) => Promise<void>,
-    notifyUser?: (notification: McpUserNotification) => void
+    notifyUser?: (notification: McpUserNotification) => void,
+    getRotationStatus?: (taskId: string) => unknown | null
   ) {
     const createServer = (): Server => {
       const server = new Server(
@@ -121,6 +122,18 @@ export class McpServerService {
                 },
                 prompt: { type: 'string', description: '新しいプロンプト' },
                 depends_on: { type: 'string', description: '依存するタスクの ID（空文字で依存関係を解除）' },
+                rotation: {
+                  type: 'object',
+                  description:
+                    'セッションローテーション設定。コンテキスト使用率が threshold に達したら handoff ファイルに引き継ぎを書かせてセッションを作り直す。' +
+                    '未指定のキーはアプリのグローバル既定値にフォールバックする',
+                  properties: {
+                    enabled: { type: 'boolean', description: '有効にするか（既定 false）' },
+                    threshold: { type: 'number', description: 'ローテーションを開始する使用率(%)。既定 60' },
+                    handoffPath: { type: 'string', description: '引き継ぎファイルのパス。enabled 時は必須' },
+                    bootPrompt: { type: 'string', description: '新セッションへの追記文面。変数 {handoffPath} {rotationCount}' },
+                  },
+                },
               },
               required: ['id'],
             },
@@ -153,6 +166,19 @@ export class McpServerService {
                   description:
                     'Claude のモデル。default（または省略）は --model 指定なし。エイリアス（opus / sonnet / haiku / fable 等）またはフルモデルID（claude-fable-5 等）を指定すると --model <値> で起動する',
                 },
+              },
+              required: ['id'],
+            },
+          },
+          {
+            name: 'get_rotation_status',
+            description:
+              'セッションローテーションの状態を取得する。現在の使用率・閾値・これまでのローテーション回数と履歴・' +
+              '保留や自動停止（ガード作動）の状態がわかる。自分が何回目の引き継ぎセッションかを確認するのに使う',
+            inputSchema: {
+              type: 'object' as const,
+              properties: {
+                id: { type: 'string', description: 'タスクID' },
               },
               required: ['id'],
             },
@@ -292,6 +318,17 @@ export class McpServerService {
               notifyTasksUpdated()
               const task = taskService.list().find((t) => t.id === id)
               return { content: [{ type: 'text' as const, text: JSON.stringify(task, null, 2) }] }
+            }
+            case 'get_rotation_status': {
+              const { id } = args as { id: string }
+              if (!getRotationStatus) {
+                throw new Error('get_rotation_status is not available')
+              }
+              const status = getRotationStatus(id)
+              if (!status) {
+                throw new Error(`Task not found: ${id}`)
+              }
+              return { content: [{ type: 'text' as const, text: JSON.stringify(status, null, 2) }] }
             }
             case 'list_dev_servers': {
               const statuses = devServerService.status()
