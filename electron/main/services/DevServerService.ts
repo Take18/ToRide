@@ -4,6 +4,14 @@ import type { DevServerConfig, PaneConfig, DevServerStatus, DevServerExitInfo } 
 import { expandPath } from '../utils/path'
 import { resolveDevServerUrl } from '../../../src/utils/devServerUrl'
 
+/**
+ * 1サーバーあたりのログ保持上限。超えたら KEEP_LOG_CHARS まで古い側を捨てる。
+ * 毎チャンク切り詰めると 2MB のコピーが走るため、下限を別に設けて切り詰め頻度を落としている。
+ */
+const MAX_LOG_CHARS = 2 * 1024 * 1024
+const KEEP_LOG_CHARS = 1.5 * 1024 * 1024
+const TRUNCATED_MARK = '[... 古いログは省略されました ...]\n'
+
 export type DevServerChangeCallback = (statuses: DevServerStatus[]) => void
 export type AbnormalExitCallback = (info: { repoId: string; paneId: string; label: string }) => void
 
@@ -63,18 +71,15 @@ export class DevServerService {
     this.processes.set(k, child)
 
     child.stdout?.on('data', (data: Buffer) => {
-      const current = this.logs.get(k) || ''
-      this.logs.set(k, current + data.toString())
+      this.appendLog(k, data.toString())
     })
 
     child.stderr?.on('data', (data: Buffer) => {
-      const current = this.logs.get(k) || ''
-      this.logs.set(k, current + data.toString())
+      this.appendLog(k, data.toString())
     })
 
     child.on('error', (err) => {
-      const current = this.logs.get(k) || ''
-      this.logs.set(k, current + `[error] ${err.message}\n`)
+      this.appendLog(k, `[error] ${err.message}\n`)
       this.processes.delete(k)
       this.recordExit(k, {
         code: null,
@@ -87,8 +92,7 @@ export class DevServerService {
     })
 
     child.on('exit', (code, signal) => {
-      const current = this.logs.get(k) || ''
-      this.logs.set(k, current + `\n[exited: code=${code} signal=${signal}]\n`)
+      this.appendLog(k, `\n[exited: code=${code} signal=${signal}]\n`)
       const intentional = this.stoppingKeys.has(k)
       this.stoppingKeys.delete(k)
       this.processes.delete(k)
@@ -169,6 +173,18 @@ export class DevServerService {
 
   private recordExit(key: string, info: DevServerExitInfo): void {
     this.lastExits.set(key, info)
+  }
+
+  /** ログを追記する。上限を超えたら古い側を行頭で切り落とす */
+  private appendLog(key: string, chunk: string): void {
+    const next = (this.logs.get(key) || '') + chunk
+    if (next.length <= MAX_LOG_CHARS) {
+      this.logs.set(key, next)
+      return
+    }
+    const kept = next.slice(next.length - KEEP_LOG_CHARS)
+    const nl = kept.indexOf('\n')
+    this.logs.set(key, TRUNCATED_MARK + (nl >= 0 ? kept.slice(nl + 1) : kept))
   }
 
   onStatusChange(callback: DevServerChangeCallback): () => void {
