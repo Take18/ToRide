@@ -1155,25 +1155,25 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* オーケストレータ */}
+        {/* 常駐オーケストレータ */}
         <section>
-          <h2 className="text-sm font-semibold text-gray-300 mb-2">オーケストレータ</h2>
+          <h2 className="text-sm font-semibold text-gray-300 mb-2">常駐オーケストレータ</h2>
           <p className="text-xs text-gray-500 mb-3">
-            ダッシュボードの「オーケストレータを立てる」ボタンで起票する orchestrate タスクの内容です。
+            ダッシュボードの「常駐オーケストレータを立てる」ボタンで起票する orchestrate タスクの内容です。
           </p>
           <div className="space-y-3">
             <div>
               <label className="block text-xs text-gray-400 mb-1">タイトル</label>
               <input
                 type="text"
-                value={settings.morningBoot?.title ?? ''}
+                value={settings.residentOrchestrator?.title ?? ''}
                 onChange={(e) =>
                   setSettings((prev) => ({
                     ...prev,
-                    morningBoot: { ...(prev.morningBoot ?? {}), title: e.target.value },
+                    residentOrchestrator: { ...(prev.residentOrchestrator ?? {}), title: e.target.value },
                   }))
                 }
-                placeholder={'オーケストレータ {date}'}
+                placeholder={'常駐オーケストレータ {date}'}
                 className="w-full px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
               />
               <p className="text-[11px] text-gray-500 mt-1">変数: {'{date}'}（YYYY-MM-DD）</p>
@@ -1181,11 +1181,11 @@ export default function SettingsPage() {
             <div>
               <label className="block text-xs text-gray-400 mb-1">プロンプト</label>
               <textarea
-                value={settings.morningBoot?.prompt ?? ''}
+                value={settings.residentOrchestrator?.prompt ?? ''}
                 onChange={(e) =>
                   setSettings((prev) => ({
                     ...prev,
-                    morningBoot: { ...(prev.morningBoot ?? {}), prompt: e.target.value },
+                    residentOrchestrator: { ...(prev.residentOrchestrator ?? {}), prompt: e.target.value },
                   }))
                 }
                 placeholder={'変数: {date}'}

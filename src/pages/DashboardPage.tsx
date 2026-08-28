@@ -7,7 +7,7 @@ import TaskForm from '../components/TaskForm/TaskForm'
 import Toast from '../components/Common/Toast'
 import { useTerminalStore } from '../stores/terminalStore'
 import type { TaskStatus, RuntimeTask } from '../types/task'
-import type { RepoConfig, LaunchMode, MorningBootConfig } from '../types/ipc'
+import type { RepoConfig, LaunchMode, ResidentOrchestratorConfig } from '../types/ipc'
 
 const COLUMNS: { status: TaskStatus; label: string; borderColor: string }[] = [
   { status: 'will_do', label: '未実行', borderColor: 'border-t-gray-500' },
@@ -22,7 +22,7 @@ export default function DashboardPage() {
   const [settingsLaunchMode, setSettingsLaunchMode] = useState<LaunchMode>('normal')
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [prSyncing, setPrSyncing] = useState(false)
-  const [morningBoot, setMorningBoot] = useState<MorningBootConfig | undefined>(undefined)
+  const [residentOrchestrator, setResidentOrchestrator] = useState<ResidentOrchestratorConfig | undefined>(undefined)
   const [orchestratorBooting, setOrchestratorBooting] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const fetchTasks = useTaskStore((s) => s.fetchTasks)
@@ -93,7 +93,7 @@ export default function DashboardPage() {
     fetchTasks()
     window.api.settings.get().then((s) => {
       setRepos(s.repos ?? [])
-      setMorningBoot(s.morningBoot)
+      setResidentOrchestrator(s.residentOrchestrator)
       if (s.useDangerouslySkipPermissions) setSettingsLaunchMode('bypass')
       else if (s.useAutoMode) setSettingsLaunchMode('auto')
       else setSettingsLaunchMode('normal')
@@ -124,20 +124,20 @@ export default function DashboardPage() {
   // ボタンの隣に出す「どこに立つか」。設定画面には repoId を出さないので、ここで確認できるようにする。
   // 未設定のまま押せると意図しないリポジトリに立ってそのまま起動してしまうため、その場合はボタンを止める
   const orchestrator = useMemo(() => {
-    if (!morningBoot?.repoId) {
-      return { label: '起票先のリポジトリが未設定です（morningBoot.repoId）', ready: false }
+    if (!residentOrchestrator?.repoId) {
+      return { label: '起票先のリポジトリが未設定です（residentOrchestrator.repoId）', ready: false }
     }
-    const repo = repos.find((r) => r.id === morningBoot.repoId)
+    const repo = repos.find((r) => r.id === residentOrchestrator.repoId)
     if (!repo) {
-      return { label: `リポジトリ「${morningBoot.repoId}」が設定に見つかりません`, ready: false }
+      return { label: `リポジトリ「${residentOrchestrator.repoId}」が設定に見つかりません`, ready: false }
     }
     return { label: `${repo.name}（${repo.id}）に起票します`, ready: true }
-  }, [morningBoot, repos])
+  }, [residentOrchestrator, repos])
 
   const handleBootOrchestrator = async () => {
     setOrchestratorBooting(true)
     try {
-      const result = await window.api.morningBoot.runNow()
+      const result = await window.api.residentOrchestrator.runNow()
       if (result.result === 'created') {
         setToast({
           message: result.started

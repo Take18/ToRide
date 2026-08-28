@@ -115,7 +115,7 @@ export default function FilterBar({
             title={orchestratorReady === false ? orchestratorTarget : undefined}
             className="px-3 py-1.5 rounded bg-orange-700 hover:bg-orange-600 text-sm text-white disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {orchestratorBooting ? '起票中...' : 'オーケストレータを立てる'}
+            {orchestratorBooting ? '起票中...' : '常駐オーケストレータを立てる'}
           </button>
         </div>
       )}

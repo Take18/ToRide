@@ -17,7 +17,7 @@ import { McpServerService, type McpUserNotification } from './services/McpServer
 import { ModelListService } from './services/ModelListService'
 import { McpHookService } from './services/McpHookService'
 import { SessionRotationService } from './services/SessionRotationService'
-import { MorningBootService } from './services/MorningBootService'
+import { ResidentOrchestratorService } from './services/ResidentOrchestratorService'
 import { importImages, deleteImages } from './services/ImageStore'
 import { PluginRegistry } from './plugins/PluginRegistry'
 import { PLUGIN_CATALOG } from './plugins/catalog'
@@ -428,14 +428,14 @@ app.whenReady().then(() => {
     }
   }, 60_000)
 
-  // ダッシュボードの「オーケストレータを立てる」ボタン
-  const morningBootService = new MorningBootService({
+  // ダッシュボードの「常駐オーケストレータを立てる」ボタン
+  const residentOrchestratorService = new ResidentOrchestratorService({
     taskService,
     getSettings,
     startTask: startTaskFn,
     notifyTasksUpdated: () => getWindow()?.webContents.send('tasks:updated'),
   })
-  ipcMain.handle('morningBoot:run-now', () => morningBootService.runNow())
+  ipcMain.handle('residentOrchestrator:run-now', () => residentOrchestratorService.runNow())
 
   // Settings handlers
   ipcMain.handle('settings:get', async () => {

@@ -78,14 +78,14 @@ export type AppSettings = {
   // 変数: {used} {handoffPath}
   rotationHandoffInstruction?: string
   // ダッシュボードから立てる orchestrate タスクの内容
-  morningBoot?: MorningBootConfig
+  residentOrchestrator?: ResidentOrchestratorConfig
 }
 
-// ダッシュボードの「オーケストレータを立てる」ボタンで起票するタスクの設定。
+// ダッシュボードの「常駐オーケストレータを立てる」ボタンで起票するタスクの設定。
 // 画面に出すのは title と prompt だけで、repoId / rotation / autoStart は設定ファイル側の項目
-export type MorningBootConfig = {
+export type ResidentOrchestratorConfig = {
   repoId?: string     // 起票先のリポジトリ。重複チェックのスコープでもある（未設定なら先頭のリポジトリ）
-  title?: string      // 変数: {date}（YYYY-MM-DD）。既定「オーケストレータ {date}」
+  title?: string      // 変数: {date}（YYYY-MM-DD）。既定「常駐オーケストレータ {date}」
   prompt?: string     // 変数: {date}
   autoStart?: boolean // 既定 true。false にすると起票だけして起動しない
   // 起票するタスクに載せるセッションローテーション設定。
@@ -93,8 +93,8 @@ export type MorningBootConfig = {
   rotation?: Omit<RotationConfig, 'history'>
 }
 
-// 「オーケストレータを立てる」ボタン（morningBoot:run-now）の結果
-export type MorningBootRunResult =
+// 「常駐オーケストレータを立てる」ボタン（residentOrchestrator:run-now）の結果
+export type ResidentOrchestratorRunResult =
   | { result: 'created'; taskId: string; title: string; started: boolean }
   | { result: 'skipped'; message: string }
   | { result: 'start-failed'; taskId: string; title: string; message: string }
@@ -185,7 +185,7 @@ export type IpcChannels = {
   // Settings
   'settings:get': [void, AppSettings]
   'settings:set': [Partial<AppSettings>, void]
-  'morningBoot:run-now': [void, MorningBootRunResult]
+  'residentOrchestrator:run-now': [void, ResidentOrchestratorRunResult]
   'settings:export': [void, boolean]
   'settings:import': [void, AppSettings | null]
 
@@ -326,8 +326,8 @@ export type WindowApi = {
     status: (taskId: string) => Promise<RotationStatus | null>
     rotateNow: (taskId: string) => Promise<void>
   }
-  morningBoot: {
-    runNow: () => Promise<MorningBootRunResult>
+  residentOrchestrator: {
+    runNow: () => Promise<ResidentOrchestratorRunResult>
   }
   mcp: {
     status: () => Promise<{ installed: boolean; url: string }>

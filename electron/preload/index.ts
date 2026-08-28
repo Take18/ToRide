@@ -9,7 +9,7 @@ import type {
   LaunchMode,
   ClaudeModel,
   RotationStatus,
-  MorningBootRunResult,
+  ResidentOrchestratorRunResult,
   NavigationPayload,
   GitHubTokenVerifyResult
 } from '../../src/types/ipc'
@@ -166,8 +166,8 @@ const api = {
     rotateNow: (taskId: string): Promise<void> =>
       ipcRenderer.invoke('rotation:rotate-now', taskId),
   },
-  morningBoot: {
-    runNow: (): Promise<MorningBootRunResult> => ipcRenderer.invoke('morningBoot:run-now'),
+  residentOrchestrator: {
+    runNow: (): Promise<ResidentOrchestratorRunResult> => ipcRenderer.invoke('residentOrchestrator:run-now'),
   },
   mcp: {
     status: (): Promise<{ installed: boolean; url: string }> =>

@@ -1,11 +1,11 @@
-import type { AppSettings, MorningBootRunResult } from '../../../src/types/ipc'
+import type { AppSettings, ResidentOrchestratorRunResult } from '../../../src/types/ipc'
 import type { Task } from '../../../src/types/task'
 import type { TaskService } from './TaskService'
 import type { StartTaskFn } from '../ipc/claude'
 
-const DEFAULT_TITLE = 'オーケストレータ {date}'
+const DEFAULT_TITLE = '常駐オーケストレータ {date}'
 
-export type MorningBootDeps = {
+export type ResidentOrchestratorDeps = {
   taskService: TaskService
   getSettings: () => AppSettings
   startTask: StartTaskFn
@@ -13,20 +13,20 @@ export type MorningBootDeps = {
 }
 
 /**
- * ダッシュボードの「オーケストレータを立てる」ボタンから、orchestrate タスクを1本起票して起動する。
+ * ダッシュボードの「常駐オーケストレータを立てる」ボタンから、orchestrate タスクを1本起票して起動する。
  *
  * 発火するのは人がボタンを押したときだけ（時刻での自動起票は持たない）。
  * そのため冪等性は「同じリポジトリの orchestrate が will_do / doing にあれば立てない」だけでよく、
  * 日付での打ち切りは持たない（done にした後にもう1本立てたいときは、また押せばよい）。
  */
-export class MorningBootService {
-  constructor(private deps: MorningBootDeps) {}
+export class ResidentOrchestratorService {
+  constructor(private deps: ResidentOrchestratorDeps) {}
 
-  async runNow(now: Date = new Date()): Promise<MorningBootRunResult> {
+  async runNow(now: Date = new Date()): Promise<ResidentOrchestratorRunResult> {
     const settings = this.deps.getSettings()
-    const config = settings.morningBoot
+    const config = settings.residentOrchestrator
     if (!config) {
-      return { result: 'error', message: 'オーケストレータの設定がありません' }
+      return { result: 'error', message: '常駐オーケストレータの設定がありません' }
     }
     // repoId 未設定でも起動自体はできてしまう（先頭のリポジトリや homedir に落ちる）が、
     // 意図しないリポジトリに立つと消す手間がかかるうえ、そのまま起動までいくのでエラーにする
@@ -34,7 +34,7 @@ export class MorningBootService {
       return {
         result: 'error',
         message:
-          '起票先のリポジトリ（morningBoot.repoId）が設定されていません。設定のエクスポート／インポートで設定してください',
+          '起票先のリポジトリ（residentOrchestrator.repoId）が設定されていません。設定のエクスポート／インポートで設定してください',
       }
     }
     if (!settings.repos.some((r) => r.id === config.repoId)) {
@@ -58,7 +58,7 @@ export class MorningBootService {
       )
     if (existing) {
       console.log(
-        `[morningBoot] skipped: orchestrate task already exists - "${existing.title}" (${existing.status})`
+        `[residentOrchestrator] skipped: orchestrate task already exists - "${existing.title}" (${existing.status})`
       )
       return {
         result: 'skipped',
@@ -89,7 +89,7 @@ export class MorningBootService {
     } as Omit<Task, 'id' | 'created_at'>)
     this.deps.notifyTasksUpdated()
     console.log(
-      `[morningBoot] created: "${title}" (${task.id}) rotation=${!!rotation?.enabled}`
+      `[residentOrchestrator] created: "${title}" (${task.id}) rotation=${!!rotation?.enabled}`
     )
 
     // 既定は起票して起動まで。autoStart: false を設定した場合だけ起票で止める
@@ -99,11 +99,11 @@ export class MorningBootService {
 
     try {
       await this.deps.startTask(task.id)
-      console.log(`[morningBoot] started: "${title}" (${task.id})`)
+      console.log(`[residentOrchestrator] started: "${title}" (${task.id})`)
       return { result: 'created', taskId: task.id, title, started: true }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      console.error(`[morningBoot] start-failed: "${title}" (${task.id}):`, err)
+      console.error(`[residentOrchestrator] start-failed: "${title}" (${task.id}):`, err)
       // リトライはしない。結果は押した人の画面に返るので通知は出さない
       return { result: 'start-failed', taskId: task.id, title, message }
     }
