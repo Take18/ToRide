@@ -77,6 +77,18 @@ export type AppSettings = {
   // handoff を書かせる指示文のテンプレート（未設定時はデフォルト）
   // 変数: {used} {handoffPath}
   rotationHandoffInstruction?: string
+  // 毎朝の orchestrate タスク自動起票
+  morningBoot?: MorningBootConfig
+}
+
+// 指定時刻に orchestrate タスクを1日1本だけ立てる設定
+export type MorningBootConfig = {
+  enabled?: boolean   // 既定 false（opt-in）
+  time?: string       // "HH:MM"（ローカルタイム、既定 "09:00"）
+  repoId?: string     // 起票する orchestrate タスクのリポジトリ。重複チェックのスコープでもある
+  title?: string      // 変数: {date}（YYYY-MM-DD）
+  prompt?: string     // 変数: {date}
+  autoStart?: boolean // false なら起票のみ（起動は人がやる）
 }
 
 // セッションローテーションの現在状態

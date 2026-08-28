@@ -17,6 +17,7 @@ import { McpServerService, type McpUserNotification } from './services/McpServer
 import { ModelListService } from './services/ModelListService'
 import { McpHookService } from './services/McpHookService'
 import { SessionRotationService } from './services/SessionRotationService'
+import { MorningBootService } from './services/MorningBootService'
 import { importImages, deleteImages } from './services/ImageStore'
 import { PluginRegistry } from './plugins/PluginRegistry'
 import { PLUGIN_CATALOG } from './plugins/catalog'
@@ -45,6 +46,7 @@ let devServerServiceInstance: DevServerService | null = null
 let terminalServiceInstance: TerminalService | null = null
 let localHttpServerInstance: LocalHttpServer | null = null
 let prSyncTimerId: ReturnType<typeof setInterval> | null = null
+let morningBootServiceInstance: MorningBootService | null = null
 
 function getWindow(): BrowserWindow | null {
   return mainWindow
@@ -427,6 +429,33 @@ app.whenReady().then(() => {
     }
   }, 60_000)
 
+  // 毎朝の orchestrate タスク自動起票（1分tickで定時発火・スリープ復帰・起動時catch-upを兼ねる）
+  const morningBootService = new MorningBootService({
+    db,
+    taskService,
+    getSettings,
+    startTask: startTaskFn,
+    notifyTasksUpdated: () => getWindow()?.webContents.send('tasks:updated'),
+    notifyStartFailed: (message, taskId) => {
+      const { notificationsEnabled = true } = getSettings()
+      if (!notificationsEnabled) return
+      const notification = new Notification({
+        title: 'ToRide: 朝のオーケストレータ起動に失敗しました',
+        body: message,
+        urgency: 'critical',
+      })
+      notification.on('click', () => {
+        const win = getWindow()
+        win?.show()
+        win?.focus()
+        win?.webContents.send('navigation:goto', { type: 'task', taskId })
+      })
+      notification.show()
+    },
+  })
+  morningBootServiceInstance = morningBootService
+  morningBootService.start()
+
   // Settings handlers
   ipcMain.handle('settings:get', async () => {
     return getSettings()
@@ -577,6 +606,7 @@ app.whenReady().then(() => {
 
 app.on('will-quit', () => {
   if (prSyncTimerId) clearInterval(prSyncTimerId)
+  morningBootServiceInstance?.stop()
   devServerServiceInstance?.stopAll()
   terminalServiceInstance?.killAll()
   localHttpServerInstance?.stop()
