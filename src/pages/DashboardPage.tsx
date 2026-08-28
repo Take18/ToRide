@@ -121,13 +121,17 @@ export default function DashboardPage() {
     return repo.panes.some((p) => !occupiedPaneKeys.has(`${repo.id}:${p.id}`))
   }
 
-  // ボタンの隣に出す「どこに立つか」。設定画面には repoId を出さないので、ここで確認できるようにする
-  const orchestratorTarget = useMemo(() => {
-    const repo = morningBoot?.repoId
-      ? repos.find((r) => r.id === morningBoot.repoId)
-      : repos[0]
-    if (!repo) return '起票先のリポジトリがありません'
-    return `${repo.name}（${repo.id}）に起票します`
+  // ボタンの隣に出す「どこに立つか」。設定画面には repoId を出さないので、ここで確認できるようにする。
+  // 未設定のまま押せると意図しないリポジトリに立ってそのまま起動してしまうため、その場合はボタンを止める
+  const orchestrator = useMemo(() => {
+    if (!morningBoot?.repoId) {
+      return { label: '起票先のリポジトリが未設定です（morningBoot.repoId）', ready: false }
+    }
+    const repo = repos.find((r) => r.id === morningBoot.repoId)
+    if (!repo) {
+      return { label: `リポジトリ「${morningBoot.repoId}」が設定に見つかりません`, ready: false }
+    }
+    return { label: `${repo.name}（${repo.id}）に起票します`, ready: true }
   }, [morningBoot, repos])
 
   const handleBootOrchestrator = async () => {
@@ -172,7 +176,8 @@ export default function DashboardPage() {
         onSyncPRs={handleSyncPRs}
         prSyncing={prSyncing}
         onBootOrchestrator={handleBootOrchestrator}
-        orchestratorTarget={orchestratorTarget}
+        orchestratorTarget={orchestrator.label}
+        orchestratorReady={orchestrator.ready}
         orchestratorBooting={orchestratorBooting}
       />
 

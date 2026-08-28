@@ -19,6 +19,8 @@ type Props = {
   onBootOrchestrator?: () => void
   /** どこに立つかの1行表示（例: my-ai（repo10）に起票します） */
   orchestratorTarget?: string
+  /** 起票先が確定しているか。false ならボタンを押させない */
+  orchestratorReady?: boolean
   orchestratorBooting?: boolean
 }
 
@@ -28,6 +30,7 @@ export default function FilterBar({
   prSyncing,
   onBootOrchestrator,
   orchestratorTarget,
+  orchestratorReady,
   orchestratorBooting
 }: Props) {
   const navigate = useNavigate()
@@ -100,11 +103,16 @@ export default function FilterBar({
       {onBootOrchestrator && (
         <div className="flex items-center gap-2">
           {orchestratorTarget && (
-            <span className="text-[11px] text-gray-400 whitespace-nowrap">{orchestratorTarget}</span>
+            <span
+              className={`text-[11px] whitespace-nowrap ${orchestratorReady ? 'text-gray-400' : 'text-yellow-500'}`}
+            >
+              {orchestratorTarget}
+            </span>
           )}
           <button
             onClick={onBootOrchestrator}
-            disabled={orchestratorBooting}
+            disabled={orchestratorBooting || orchestratorReady === false}
+            title={orchestratorReady === false ? orchestratorTarget : undefined}
             className="px-3 py-1.5 rounded bg-orange-700 hover:bg-orange-600 text-sm text-white disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {orchestratorBooting ? '起票中...' : 'オーケストレータを立てる'}

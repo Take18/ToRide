@@ -196,6 +196,7 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **冪等性は既存タスクチェックのみ**: `repoId` 一致の orchestrate が `will_do` / `doing` にあれば起票せず `skipped` を返す。`done` は見ないので、完了させてからもう一度押せばまた立つ
 - **重複チェックのスコープを `repoId` 一致に限る**理由: 全 orchestrate を見ると、別リポジトリのオーケストレータが走っている間ずっと立てられなくなる
 - **設定画面に出すのは `title` と `prompt` だけ**。`repoId` / `rotation` / `autoStart` は毎回変える値ではないので AppSettings 側だけに置く。代わりにボタンの隣へ「どこに立つか」を1行出す
+- **`repoId` はフォールバックせずエラーにする**: 未設定・設定に無いIDのときは先頭のリポジトリや homedir に落とさない。意図しないリポジトリに立つと消す手間がかかるうえ、既定でそのまま起動まで進んでしまう。ボタン自体も disabled にして押す前に気づけるようにする
 - **rotation はタスク単位で載せる**: `rotationDefaults` はグローバル既定値なので、そこに書くと他リポジトリで走っている orchestrate にも効いてしまう。`rotation.bootPrompt` 省略時は `morningBoot.prompt` を流用する
 - **ログ**: `[morningBoot] created / skipped / start-failed`。見送りは正常系なので `console.log`。結果は押した人の画面にトーストで返るので、デスクトップ通知は出さない
 

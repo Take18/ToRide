@@ -23,9 +23,25 @@ export class MorningBootService {
   constructor(private deps: MorningBootDeps) {}
 
   async runNow(now: Date = new Date()): Promise<MorningBootRunResult> {
-    const config = this.deps.getSettings().morningBoot
+    const settings = this.deps.getSettings()
+    const config = settings.morningBoot
     if (!config) {
       return { result: 'error', message: 'オーケストレータの設定がありません' }
+    }
+    // repoId 未設定でも起動自体はできてしまう（先頭のリポジトリや homedir に落ちる）が、
+    // 意図しないリポジトリに立つと消す手間がかかるうえ、そのまま起動までいくのでエラーにする
+    if (!config.repoId) {
+      return {
+        result: 'error',
+        message:
+          '起票先のリポジトリ（morningBoot.repoId）が設定されていません。設定のエクスポート／インポートで設定してください',
+      }
+    }
+    if (!settings.repos.some((r) => r.id === config.repoId)) {
+      return {
+        result: 'error',
+        message: `起票先のリポジトリ「${config.repoId}」が設定に見つかりません`,
+      }
     }
     const today = localDate(now)
 
