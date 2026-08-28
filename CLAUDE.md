@@ -151,9 +151,10 @@ src/
   - chore: `{directory}`
 - **Stop Hook**: `~/.claude/hooks/stop.sh` でタスク完了を検知・HTTP通知（設定画面からインストール）
 - **Status Line Hook**: `~/.claude/statusline.sh` で各APIレスポンス後にコンテキスト使用量をリアルタイム更新（設定画面からインストール）
-- **MCP サーバー**: `create_task` / `list_tasks` / `list_repos` / `update_task` / `delete_task` / `start_task` / `list_dev_servers` / `start_dev_server` / `stop_dev_server` / `notify_user` / `get_rotation_status` ツールを公開（設定画面からインストール、`~/.claude/settings.json` に自動登録）
+- **MCP サーバー**: `create_task` / `list_tasks` / `list_repos` / `update_task` / `delete_task` / `start_task` / `list_dev_servers` / `start_dev_server` / `stop_dev_server` / `get_dev_server_log` / `notify_user` / `get_rotation_status` ツールを公開（設定画面からインストール、`~/.claude/settings.json` に自動登録）
   - `start_task` は `launchMode` パラメータで起動モードを指定可能
-  - `list_dev_servers` は workdir・実行中タスク情報を含めて返却
+  - `list_dev_servers` は workdir・実行中タスク情報に加えて直近の終了情報（`lastExitCode` / `lastExitSignal` / `lastExitedAt` / `lastExitReason` / `lastExitMessage`）を含めて返却
+  - `get_dev_server_log` は開発サーバーの stdout/stderr を返す（既定は末尾100行・最大1000行、`grep` で行フィルタ可）。停止後もログは残るため異常終了の原因調査に使える
   - `notify_user` はタスク内のClaudeセッションが任意のタイミングでデスクトップ通知を送るツール（`message` 必須 / `level`: info・question・warning / `title` / `taskTitle` / `taskId`）。`taskTitle` からタスクを逆引きし、通知クリックで該当タスクへジャンプする
   - `get_rotation_status` はセッションローテーションの状態（使用率・閾値・回数・履歴・保留/停止）を返す。`update_task` の `rotation` で設定を変更できる
 
@@ -306,6 +307,8 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **orchestrateのpane非占有**: orchestrateタスクは `pane` を空文字にして起動し、ペイン占有判定の対象外（workdirはリポジトリ先頭ペインのパスを借用）
 - **プロンプト注入タイミング**: 固定遅延ではなくTUI起動検知ベースで注入し自動送信
 - **PR URL検出**: ターミナル出力スキャンではなくStatus Line Hookのペイロードから検出
+- **開発サーバーの終了情報**: `DevServerService` が `lastExits: Map<key, DevServerExitInfo>` で直近の終了（code / signal / 時刻 / manual・abnormal / spawn失敗メッセージ）を保持し、`status()` に載せて返す。`start()` 時にクリアするので「今の起動で落ちたか」だけが残る
+- **開発サーバーログの返却量**: MCPレスポンスがコンテキストを食い潰さないよう `get_dev_server_log` は既定100行・最大1000行に切り詰める。`grep` は先に行フィルタしてから末尾N行を取る
 - **notify_userのタスク解決**: セッションが自分のタスクIDを知らなくても通知できるよう、`taskTitle` からdoingタスク優先で完全一致→部分一致で逆引きする。解決できなければ通知は出しクリック時はウィンドウフォーカスのみ
 - **モデル一覧**: `/v1/models` から動的取得し、失敗時は opus/sonnet/haiku にフォールバック（ModelListService）
 - **ローテーション後のコンテキスト追跡リセット**: `ClaudeService.fireContextUpdate` は単調増加ゲート（`used <= prevMax` を捨てる）を持つため、新セッションの小さい値が全て捨てられる。`resetContextTracking()` を呼ばないと閾値判定が二度と発火しない

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'child_process'
 import { existsSync } from 'fs'
-import type { DevServerConfig, PaneConfig, DevServerStatus } from '../../../src/types/ipc'
+import type { DevServerConfig, PaneConfig, DevServerStatus, DevServerExitInfo } from '../../../src/types/ipc'
 import { expandPath } from '../utils/path'
 import { resolveDevServerUrl } from '../../../src/utils/devServerUrl'
 
@@ -12,6 +12,7 @@ export class DevServerService {
   private logs: Map<string, string> = new Map()
   private configs: Map<string, { repoId: string; paneConfig: PaneConfig; serverConfig: DevServerConfig }> =
     new Map()
+  private lastExits: Map<string, DevServerExitInfo> = new Map()
   private changeCallbacks: Set<DevServerChangeCallback> = new Set()
   private stoppingKeys: Set<string> = new Set()
   private abnormalExitCallback?: AbnormalExitCallback
@@ -30,9 +31,12 @@ export class DevServerService {
     const resolvedPath = expandPath(paneConfig.path)
     this.configs.set(k, { repoId, paneConfig, serverConfig })
     this.logs.set(k, '')
+    this.lastExits.delete(k)
 
     if (!existsSync(resolvedPath)) {
-      this.logs.set(k, `[error] ディレクトリが存在しません: ${resolvedPath}\n設定画面でpaneのパスを確認してください。\n`)
+      const message = `ディレクトリが存在しません: ${resolvedPath}`
+      this.logs.set(k, `[error] ${message}\n設定画面でpaneのパスを確認してください。\n`)
+      this.recordExit(k, { code: null, signal: null, at: new Date().toISOString(), reason: 'abnormal', message })
       this.notifyChange()
       return
     }
@@ -72,6 +76,13 @@ export class DevServerService {
       const current = this.logs.get(k) || ''
       this.logs.set(k, current + `[error] ${err.message}\n`)
       this.processes.delete(k)
+      this.recordExit(k, {
+        code: null,
+        signal: null,
+        at: new Date().toISOString(),
+        reason: this.stoppingKeys.has(k) ? 'manual' : 'abnormal',
+        message: err.message
+      })
       this.notifyChange()
     })
 
@@ -81,6 +92,12 @@ export class DevServerService {
       const intentional = this.stoppingKeys.has(k)
       this.stoppingKeys.delete(k)
       this.processes.delete(k)
+      this.recordExit(k, {
+        code,
+        signal,
+        at: new Date().toISOString(),
+        reason: intentional ? 'manual' : 'abnormal'
+      })
       this.notifyChange()
       if (!intentional && code !== 0) {
         const cfg = this.configs.get(k)
@@ -133,7 +150,8 @@ export class DevServerService {
         label: config.serverConfig.label,
         running: !!child,
         pid: child?.pid,
-        url: resolveDevServerUrl(config.serverConfig.url)
+        url: resolveDevServerUrl(config.serverConfig.url),
+        lastExit: this.lastExits.get(k)
       })
     }
 
@@ -142,6 +160,15 @@ export class DevServerService {
 
   getLog(repoId: string, paneId: string, label: string): string {
     return this.logs.get(this.key(repoId, paneId, label)) || ''
+  }
+
+  /** 直近の終了情報。起動したことがない／まだ終了していない場合は undefined */
+  getLastExit(repoId: string, paneId: string, label: string): DevServerExitInfo | undefined {
+    return this.lastExits.get(this.key(repoId, paneId, label))
+  }
+
+  private recordExit(key: string, info: DevServerExitInfo): void {
+    this.lastExits.set(key, info)
   }
 
   onStatusChange(callback: DevServerChangeCallback): () => void {

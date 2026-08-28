@@ -104,6 +104,17 @@ export type GitStatusResult = {
 }
 
 // Dev server status
+export type DevServerExitInfo = {
+  code: number | null
+  signal: string | null
+  /** 終了時刻（ISO8601） */
+  at: string
+  /** manual = stop() 経由の意図的な停止 / abnormal = それ以外（クラッシュ・spawn失敗） */
+  reason: 'manual' | 'abnormal'
+  /** spawn 失敗などのエラーメッセージ */
+  message?: string
+}
+
 export type DevServerStatus = {
   repoId: string
   paneId: string
@@ -111,6 +122,8 @@ export type DevServerStatus = {
   running: boolean
   pid?: number
   url?: string  // resolveDevServerUrl で解決済みのURL
+  /** 直近の終了情報。一度も終了していなければ undefined */
+  lastExit?: DevServerExitInfo
 }
 
 // Terminal data event
