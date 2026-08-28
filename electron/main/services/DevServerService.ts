@@ -5,8 +5,9 @@ import { expandPath } from '../utils/path'
 import { resolveDevServerUrl } from '../../../src/utils/devServerUrl'
 
 /**
- * 1サーバーあたりのログ保持上限。超えたら KEEP_LOG_CHARS まで古い側を捨てる。
- * 毎チャンク切り詰めると 2MB のコピーが走るため、下限を別に設けて切り詰め頻度を落としている。
+ * 1サーバーあたりのログ保持上限（String.length 基準＝UTF-16コードユニット数。
+ * 日本語ログでは実メモリはこれより大きくなる）。超えたら KEEP_LOG_CHARS まで古い側を捨てる。
+ * 毎チャンク切り詰めると保持分まるごとのコピーが走るため、切り落とし先を別に設けて頻度を落としている。
  */
 const MAX_LOG_CHARS = 2 * 1024 * 1024
 const KEEP_LOG_CHARS = 1.5 * 1024 * 1024
