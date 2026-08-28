@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3'
-import type { AppSettings } from '../../../src/types/ipc'
+import type { AppSettings, MorningBootRunResult } from '../../../src/types/ipc'
 import type { Task } from '../../../src/types/task'
 import type { TaskService } from './TaskService'
 import type { StartTaskFn } from '../ipc/claude'
@@ -12,10 +12,13 @@ const DEFAULT_TITLE = 'オーケストレータ {date}'
 // 永続状態。settings（＝人が書く設定）とは別キーに置く。
 // task_runtime は起動時に全削除されるため、日付スタンプの置き場としては使えない
 type MorningBootState = {
-  // 「その日ぶんの判断を済ませた日」。起こした日も、見送った日も、ここに入る
+  // 「その日ぶんの起票判断を済ませた日」。起こした日も、既存タスクがあって見送った日も入る。
+  // 曜日フィルタで見送った日は入れない（ボタンでの手動起票まで打ち切ってしまうため）
   lastBootedDate?: string
-  // 直前のtickで enabled をどう見ていたか。false→true の遷移を検知して初日をスキップする
+  // 直前のtickで enabled をどう見ていたか。false→true の遷移検知に使う
   enabledSeen?: boolean
+  // enabled を有効と観測し始めた日。この日は自動起票しない（手動ボタンは通す）
+  enabledSinceDate?: string
 }
 
 export type MorningBootDeps = {
@@ -29,19 +32,20 @@ export type MorningBootDeps = {
 }
 
 /**
- * 指定時刻に orchestrate タスクを1日1本だけ立てる。
+ * 指定時刻に orchestrate タスクを1日1本だけ立てる。手動ボタン（runNow）からも同じ経路を通る。
  *
  * 冪等性は2層で担保する:
  *  1. 永続の lastBootedDate（同じ日に二度判断しない。done にされた後の再起動でも立て直さない）
  *  2. 実行時のタスク一覧チェック（人が手で立てていたら作らない）
  *
- * 判定は毎分の tick 1本に集約してあるので、定時発火・スリープ復帰・アプリ起動時の
+ * 自動起票の判定は毎分の tick 1本に集約してあるので、定時発火・スリープ復帰・アプリ起動時の
  * catch-up がすべて同じ式で片づく（「時刻ぴったり」ではなく「1日1本」が要件）。
  */
 export class MorningBootService {
   private timerId: ReturnType<typeof setInterval> | null = null
   private ticking = false
   private loggedInvalidTime: string | null = null
+  private loggedWeekdaySkipDate: string | null = null
 
   constructor(private deps: MorningBootDeps) {}
 
@@ -57,7 +61,7 @@ export class MorningBootService {
     this.timerId = null
   }
 
-  /** 手動実行用（設定画面やデバッグから叩けるように公開しておく） */
+  /** 自動起票の評価（1分ごと） */
   async tick(now: Date = new Date()): Promise<void> {
     if (this.ticking) return
     this.ticking = true
@@ -70,26 +74,60 @@ export class MorningBootService {
     }
   }
 
+  /**
+   * 「今日ぶんを立てる」ボタンから呼ぶ手動起票。
+   * enabled / time / weekdays は見ない（押した人の意思が優先）が、
+   * 冪等性（lastBootedDate と既存タスクのチェック）は自動起票とまったく同じものを通す。
+   */
+  async runNow(now: Date = new Date()): Promise<MorningBootRunResult> {
+    const config = this.deps.getSettings().morningBoot
+    if (!config) {
+      return { result: 'error', message: 'morningBoot が設定されていません' }
+    }
+    const today = localDate(now)
+    const state = this.readState()
+    if (state.lastBootedDate === today) {
+      console.log(`[morningBoot] skipped (${today}): already booted today (manual)`)
+      return {
+        result: 'skipped',
+        reason: 'already-booted',
+        message: `今日（${today}）ぶんは起票済みです`,
+      }
+    }
+    return this.boot(config, today, 'manual')
+  }
+
   private async evaluate(now: Date): Promise<void> {
     const config = this.deps.getSettings().morningBoot
     const state = this.readState()
+    const today = localDate(now)
 
     if (!config?.enabled) {
       if (state.enabledSeen) this.writeState({ ...state, enabledSeen: false })
       return
     }
 
-    // 有効化した当日は立てない（設定をいじっただけでセッションが起動するのを避ける）。
-    // 判定式を1本に保つため、フラグを増やさず lastBootedDate を今日で埋めて表現する
+    // 有効化した当日は自動では立てない（設定をいじっただけでセッションが起動する驚きを避ける）。
+    // 手動ボタンは通したいので lastBootedDate ではなく専用のキーに記録する
     if (!state.enabledSeen) {
-      const today = localDate(now)
-      this.writeState({ lastBootedDate: today, enabledSeen: true })
+      this.writeState({ ...state, enabledSeen: true, enabledSinceDate: today })
       console.log(`[morningBoot] enabled - skipping today (${today}); first boot is tomorrow`)
       return
     }
+    if (state.enabledSinceDate === today) return
 
-    const today = localDate(now)
     if (state.lastBootedDate === today) return
+
+    // 曜日フィルタ。ここでの見送りは lastBootedDate を進めない
+    // （進めると、曜日外の日に手動ボタンを押しても打ち切られてしまう）
+    const weekdays = config.weekdays
+    if (weekdays && weekdays.length > 0 && !weekdays.includes(now.getDay())) {
+      if (this.loggedWeekdaySkipDate !== today) {
+        this.loggedWeekdaySkipDate = today
+        console.log(`[morningBoot] skipped (${today}): not a configured weekday`)
+      }
+      return
+    }
 
     const time = config.time?.trim() || DEFAULT_TIME
     const scheduled = parseTime(time)
@@ -102,6 +140,17 @@ export class MorningBootService {
     }
     this.loggedInvalidTime = null
     if (minutesOfDay(now) < scheduled) return
+
+    await this.boot(config, today, 'auto')
+  }
+
+  /** 起票の本体。自動・手動の両方がここを通る */
+  private async boot(
+    config: NonNullable<AppSettings['morningBoot']>,
+    today: string,
+    trigger: 'auto' | 'manual'
+  ): Promise<MorningBootRunResult> {
+    const state = this.readState()
 
     // 人が手で立てていたら作らない。スコープは repoId 一致に限定する
     // （全 orchestrate を見ると、別リポジトリのオーケストレータが走っている間ずっと見送られる）
@@ -118,7 +167,11 @@ export class MorningBootService {
       console.log(
         `[morningBoot] skipped (${today}): orchestrate task already exists - "${existing.title}" (${existing.status})`
       )
-      return
+      return {
+        result: 'skipped',
+        reason: 'existing-task',
+        message: `既に orchestrate タスクがあります: 「${existing.title}」`,
+      }
     }
 
     const title = expandDate(config.title?.trim() || DEFAULT_TITLE, today)
@@ -146,19 +199,24 @@ export class MorningBootService {
     this.writeState({ ...state, lastBootedDate: today })
     this.deps.notifyTasksUpdated()
     console.log(
-      `[morningBoot] created (${today}): "${title}" (${task.id}) autoStart=${!!config.autoStart} rotation=${!!rotation?.enabled}`
+      `[morningBoot] created (${today}, ${trigger}): "${title}" (${task.id}) autoStart=${!!config.autoStart} rotation=${!!rotation?.enabled}`
     )
 
-    if (!config.autoStart) return
+    if (!config.autoStart) {
+      return { result: 'created', taskId: task.id, title, started: false }
+    }
 
     try {
       await this.deps.startTask(task.id)
       console.log(`[morningBoot] started (${today}): "${title}" (${task.id})`)
+      return { result: 'created', taskId: task.id, title, started: true }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       console.error(`[morningBoot] start-failed (${today}): "${title}" (${task.id}):`, err)
-      // リトライはしない（同じ理由で失敗し続けるため）。人に気づかせるのが目的
-      this.deps.notifyStartFailed(message, task.id)
+      // リトライはしない（同じ理由で失敗し続けるため）。人に気づかせるのが目的。
+      // 手動起票では結果が画面に出るので通知は出さない
+      if (trigger === 'auto') this.deps.notifyStartFailed(message, task.id)
+      return { result: 'start-failed', taskId: task.id, title, message }
     }
   }
 

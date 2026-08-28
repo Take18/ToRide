@@ -456,6 +456,9 @@ app.whenReady().then(() => {
   morningBootServiceInstance = morningBootService
   morningBootService.start()
 
+  // 「今日ぶんを立てる」ボタン。冪等性の判定は自動起票とまったく同じものを通る
+  ipcMain.handle('morningBoot:run-now', () => morningBootService.runNow())
+
   // Settings handlers
   ipcMain.handle('settings:get', async () => {
     return getSettings()

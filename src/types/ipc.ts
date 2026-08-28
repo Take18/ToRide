@@ -89,10 +89,20 @@ export type MorningBootConfig = {
   title?: string      // 変数: {date}（YYYY-MM-DD）
   prompt?: string     // 変数: {date}
   autoStart?: boolean // false なら起票のみ（起動は人がやる）
+  // 自動起票する曜日（0=日 〜 6=土）。省略・空配列なら毎日。
+  // 祝日は判定しない（カレンダーを抱えても有給や代休でズレるため、そこはボタン運用で吸収する）
+  weekdays?: number[]
   // 起票するタスクに載せるセッションローテーション設定。
   // rotationDefaults（全タスクに効くグローバル既定値）とは別で、このタスクにだけ効く
   rotation?: Omit<RotationConfig, 'history'>
 }
+
+// 「今日ぶんを立てる」ボタン（morningBoot:run-now）の結果
+export type MorningBootRunResult =
+  | { result: 'created'; taskId: string; title: string; started: boolean }
+  | { result: 'skipped'; reason: 'already-booted' | 'existing-task'; message: string }
+  | { result: 'start-failed'; taskId: string; title: string; message: string }
+  | { result: 'error'; message: string }
 
 // セッションローテーションの現在状態
 export type RotationStatus = {
@@ -179,6 +189,7 @@ export type IpcChannels = {
   // Settings
   'settings:get': [void, AppSettings]
   'settings:set': [Partial<AppSettings>, void]
+  'morningBoot:run-now': [void, MorningBootRunResult]
   'settings:export': [void, boolean]
   'settings:import': [void, AppSettings | null]
 
@@ -318,6 +329,9 @@ export type WindowApi = {
   rotation: {
     status: (taskId: string) => Promise<RotationStatus | null>
     rotateNow: (taskId: string) => Promise<void>
+  }
+  morningBoot: {
+    runNow: () => Promise<MorningBootRunResult>
   }
   mcp: {
     status: () => Promise<{ installed: boolean; url: string }>
