@@ -101,10 +101,11 @@ export default function FilterBar({
         </button>
       )}
       {onBootOrchestrator && (
-        <div className="flex items-center gap-2">
+        // 「〜に起票します」がどのボタンの説明なのか分かるよう、枠と色でボタンと1つのまとまりに見せる
+        <div className="flex items-center gap-2 pl-2.5 pr-1 py-1 rounded border border-orange-900 bg-orange-950/30">
           {orchestratorTarget && (
             <span
-              className={`text-[11px] whitespace-nowrap ${orchestratorReady ? 'text-gray-400' : 'text-yellow-500'}`}
+              className={`text-[11px] whitespace-nowrap ${orchestratorReady ? 'text-orange-300' : 'text-yellow-500'}`}
             >
               {orchestratorTarget}
             </span>
@@ -113,7 +114,7 @@ export default function FilterBar({
             onClick={onBootOrchestrator}
             disabled={orchestratorBooting || orchestratorReady === false}
             title={orchestratorReady === false ? orchestratorTarget : undefined}
-            className="px-3 py-1.5 rounded bg-orange-700 hover:bg-orange-600 text-sm text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-3 py-1 rounded bg-orange-700 hover:bg-orange-600 text-sm text-white disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {orchestratorBooting ? '起票中...' : '常駐オーケストレータを立てる'}
           </button>
