@@ -10,6 +10,7 @@ import type {
 import type { TicketProviderMeta, PluginCatalogEntry } from '../types/plugin'
 import ConfirmDialog from '../components/Common/ConfirmDialog'
 import Toast from '../components/Common/Toast'
+import { PromptTextarea } from '../components/Common/PromptTextarea'
 
 // args配列 ↔ テキスト変換をonBlurで行うinput
 function ArgsInput({
@@ -1003,13 +1004,13 @@ export default function SettingsPage() {
                       ))}
                     </span>
                   </div>
-                  <textarea
+                  <PromptTextarea
                     ref={(el) => { templateRefs.current[type] = el }}
                     value={settings.promptTemplates?.[type] ?? ''}
-                    onChange={(e) =>
+                    onChange={(v) =>
                       setSettings((prev) => ({
                         ...prev,
-                        promptTemplates: { ...prev.promptTemplates, [type]: e.target.value }
+                        promptTemplates: { ...prev.promptTemplates, [type]: v }
                       }))
                     }
                     placeholder={`${type} タスクの初期プロンプト`}
@@ -1040,10 +1041,10 @@ export default function SettingsPage() {
               デフォルトに戻す
             </button>
           </div>
-          <textarea
+          <PromptTextarea
             value={settings.orchestrateSystemPrompt ?? ''}
-            onChange={(e) =>
-              setSettings((prev) => ({ ...prev, orchestrateSystemPrompt: e.target.value }))
+            onChange={(v) =>
+              setSettings((prev) => ({ ...prev, orchestrateSystemPrompt: v }))
             }
             placeholder={DEFAULT_ORCHESTRATE_PROMPT}
             rows={10}
@@ -1139,12 +1140,12 @@ export default function SettingsPage() {
               <p className="text-[11px] text-gray-500 mb-1 leading-relaxed">
                 変数: {'{handoffPath}'} {'{rotationCount}'}。通常の起動プロンプトの末尾に追加されます（置換ではありません）。
               </p>
-              <textarea
+              <PromptTextarea
                 value={settings.rotationDefaults?.bootPrompt ?? ''}
-                onChange={(e) =>
+                onChange={(v) =>
                   setSettings((prev) => ({
                     ...prev,
-                    rotationDefaults: { ...(prev.rotationDefaults ?? {}), bootPrompt: e.target.value },
+                    rotationDefaults: { ...(prev.rotationDefaults ?? {}), bootPrompt: v },
                   }))
                 }
                 placeholder="未入力ならデフォルト文面が使われます"

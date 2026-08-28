@@ -46,6 +46,7 @@ electron/
       SessionRotationService.ts # セッションローテーション（閾値検知・handoff完了検知・再起動）
       McpServerService.ts # MCPサーバー（タスクCRUD・タスク起動・開発サーバー制御ツールを公開）
       ModelListService.ts # /v1/models からのモデル一覧取得
+      SlashCommandService.ts # スラッシュコマンド・スキルの列挙（補完候補）
       McpHookService.ts   # ~/.claude/settings.json のmcpServers自動管理
     plugins/
       PluginRegistry.ts   # プラグインレジストリ
@@ -98,6 +99,9 @@ src/
 - **チケットプラグイン**: Wrike（デフォルト）と GitHub Issue をサポート（PluginRegistry架）
 - **PR URLから自動入力**: タスクフォームのURL自動入力欄にGitHub PR URLを渡すと、`review` タスクとしてタイプ・タイトル（`[repo] #番号 PRタイトル`）・PR URL・prStatus を自動設定し、gitリモートと突き合わせて `repoId` も自動選択（プラグイン設定不要で常に有効）
 - **プロンプト変数チップ**: タスクフォームの変数チップをクリックするとカーソル位置に挿入
+- **スラッシュコマンド補完**: プロンプト入力欄の**先頭**で `/` を打つとコマンド・スキルの候補を表示（↑↓で移動 / Enter・Tab で確定 / Esc で閉じる）
+  - 収集元: ユーザー（`~/.claude/commands`・`skills`）/ プロジェクト（`<workdir>/.claude/...`）/ プラグイン（`installed_plugins.json` の installPath 配下）
+  - 対象欄: タスクフォームの Prompt・ミッション説明、設定画面の promptTemplates・orchestrateSystemPrompt・bootPrompt
 - **フォルダ選択**: choreタスクのDirectory入力にフォルダ選択ダイアログボタン
 - **編集**: タイプ以外の全フィールドを編集可能
 - **削除**: タスクの完全削除
@@ -308,6 +312,8 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **PR URL検出**: ターミナル出力スキャンではなくStatus Line Hookのペイロードから検出
 - **notify_userのタスク解決**: セッションが自分のタスクIDを知らなくても通知できるよう、`taskTitle` からdoingタスク優先で完全一致→部分一致で逆引きする。解決できなければ通知は出しクリック時はウィンドウフォーカスのみ
 - **モデル一覧**: `/v1/models` から動的取得し、失敗時は opus/sonnet/haiku にフォールバック（ModelListService）
+- **スラッシュコマンド候補のスキャン**: `~/.claude/skills` はシンボリックリンクで貼られることが多く `Dirent.isDirectory()` が false になるため、リンクは `stat` で辿り直す。frontmatter の `description` はブロックスカラー（`|` / `>`）もあるので最初の段落だけ取り出す。SKILL.md は大きいので先頭4KBのみ読む
+- **候補の同名解決**: プロジェクト > ユーザー > プラグインの優先で先勝ち。プラグインは `pluginName:` を名前空間に付け、project スコープのものは workdir がその配下のときだけ含める
 - **ローテーション後のコンテキスト追跡リセット**: `ClaudeService.fireContextUpdate` は単調増加ゲート（`used <= prevMax` を捨てる）を持つため、新セッションの小さい値が全て捨てられる。`resetContextTracking()` を呼ばないと閾値判定が二度と発火しない
 - **StopHookのコールバックは `Map<taskId, Set<cb>>`**: 1タスクに複数の購読者（タスク完了通知 / ローテーションのidle・handoff検知）がいるため。起動のたびに `removeTaskCallback` してから登録し直す（Set化で積み上がるのを防ぐ）
 - **エコー検証の照合対象**: 日本語本文ではなく `handoffPath`（ASCII）の末尾。CJKはTUI上で全角幅として描画され折り返し計算が半角と異なるため。照合前に空白・改行を全除去して正規化する。指示文の最終行を `{handoffPath}` で終わらせているのはこのため
