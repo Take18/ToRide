@@ -15,6 +15,7 @@ import { StopHookService } from './services/StopHookService'
 import { ContextLineService } from './services/ContextLineService'
 import { McpServerService, type McpUserNotification } from './services/McpServerService'
 import { ModelListService } from './services/ModelListService'
+import { SlashCommandService } from './services/SlashCommandService'
 import { McpHookService } from './services/McpHookService'
 import { SessionRotationService } from './services/SessionRotationService'
 import { importImages, deleteImages } from './services/ImageStore'
@@ -384,6 +385,12 @@ app.whenReady().then(() => {
     getSettings,
     stopHookService,
     modelListService
+  )
+
+  // スラッシュコマンド／スキル補完
+  const slashCommandService = new SlashCommandService()
+  ipcMain.handle('claude:list-commands', (_, workdir?: string) =>
+    slashCommandService.listCommands(workdir)
   )
 
   // Stop Hook IPC handlers

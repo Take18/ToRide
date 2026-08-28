@@ -4,6 +4,7 @@ import type { RepoConfig } from '../../types/ipc'
 import type { TicketProviderMeta } from '../../types/plugin'
 import { useTaskStore } from '../../stores/taskStore'
 import { BranchCombobox } from '../Common/BranchCombobox'
+import { PromptTextarea } from '../Common/PromptTextarea'
 
 type Props = {
   isOpen: boolean
@@ -208,6 +209,13 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
   const set = (key: string, value: string | boolean) => {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
+
+  // スラッシュコマンド補完でプロジェクト定義を拾うための作業ディレクトリ。
+  // chore / orchestrate は入力された directory、それ以外はリポジトリ先頭ペインのパス
+  const promptWorkdir =
+    (form.type === 'chore' || form.type === 'orchestrate') && form.directory
+      ? form.directory
+      : branchSourceDir
 
   const handleTicketFetch = async () => {
     if (!ticketUrl.trim()) return
@@ -496,9 +504,10 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
                 <p className="text-xs text-gray-500 mb-1">
                   何を達成したいかを記述してください。オーケストレーターがサブタスクに分解して自律実行します。
                 </p>
-                <textarea
+                <PromptTextarea
                   value={form.prompt}
-                  onChange={(e) => set('prompt', e.target.value)}
+                  onChange={(v) => set('prompt', v)}
+                  workdir={promptWorkdir}
                   placeholder="例: Aコンポーネントの実装後にBをレビューして、両方完了したらCをリリースする"
                   rows={4}
                   className={inputClass}
@@ -533,10 +542,11 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
                     ))}
                   </span>
                 </div>
-                <textarea
+                <PromptTextarea
                   ref={promptRef}
                   value={form.prompt}
-                  onChange={(e) => set('prompt', e.target.value)}
+                  onChange={(v) => set('prompt', v)}
+                  workdir={promptWorkdir}
                   placeholder="Claude Codeへの指示..."
                   rows={3}
                   className={inputClass}
