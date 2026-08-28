@@ -198,6 +198,7 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **発火は1分tick1本**: `enabled && now >= 今日のtime && lastBootedDate !== today` の式だけで、定時発火・スリープ復帰・アプリ起動時の catch-up を兼ねる。時刻ぴったりの発火は要件ではない（「1日1本が確実に立つ」が要件）
 - **有効化した日は立てない**: 設定をいじっただけでセッションが起動する驚きを避けるため、`enabled` を false→true と観測した tick で `lastBootedDate` を今日にする
 - **start 失敗はリトライしない**: タスク生成の時点でスタンプ済み。失敗時だけデスクトップ通知（warning）を出す。ログだけだと朝が立たなかったことに人が気づけない
+- **rotation は morningBoot 側に持つ**: 起票するタスクにだけ載せる（`rotationDefaults` はグローバル既定値なので、他リポジトリで走っている orchestrate にも効いてしまう）。`rotation.bootPrompt` 省略時は `morningBoot.prompt` を流用する
 - **ログ**: `[morningBoot] created / skipped / start-failed`。見送りは正常系なので `console.log`
 
 ### ペイン・開発サーバー・複数リポジトリ
@@ -274,7 +275,7 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 | `orchestrateSystemPrompt` | orchestrateタスク起動時に先頭に付与するシステムプロンプト（未設定時はデフォルト） |
 | `rotationDefaults` | セッションローテーションのグローバル既定値（enabled / threshold / handoffPath / bootPrompt）。タスク側が未指定のキーだけフォールバック |
 | `rotationHandoffInstruction` | handoffを書かせる指示文のテンプレート（変数: `{used}` `{handoffPath}`） |
-| `morningBoot` | 朝のorchestrateタスク自動起票（enabled / time "HH:MM" / repoId / title / prompt / autoStart。title・promptで `{date}` を展開） |
+| `morningBoot` | 朝のorchestrateタスク自動起票（enabled / time "HH:MM" / repoId / title / prompt / autoStart / rotation。title・prompt・rotation.bootPromptで `{date}` を展開） |
 | `notificationsEnabled` | デスクトップ通知の有効/無効（デフォルトtrue） |
 | `stopHookPort` | ローカルHTTPサーバーのポート（デフォルト39457） |
 | `pluginSettings` | チケットプラグイン設定（暗号化フィールドはsafeStorage管理） |

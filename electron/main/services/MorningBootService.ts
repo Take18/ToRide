@@ -123,6 +123,16 @@ export class MorningBootService {
 
     const title = expandDate(config.title?.trim() || DEFAULT_TITLE, today)
     const prompt = config.prompt ? expandDate(config.prompt, today) : undefined
+    // bootPrompt は prompt と同じにしたいケースがほとんどなので、省略時は prompt を流用する
+    // （rotationDefaults に置くと他のタスクにも効いてしまうため、ここはタスク単位で載せる）
+    const rotation = config.rotation
+      ? {
+          ...config.rotation,
+          bootPrompt: config.rotation.bootPrompt
+            ? expandDate(config.rotation.bootPrompt, today)
+            : prompt,
+        }
+      : undefined
     const task = this.deps.taskService.create({
       type: 'orchestrate',
       title,
@@ -130,11 +140,14 @@ export class MorningBootService {
       pane: '',
       repoId: config.repoId,
       prompt,
+      rotation,
     } as Omit<Task, 'id' | 'created_at'>)
     // 作成できた時点でスタンプする。start が失敗しても毎分作り直さないため
     this.writeState({ ...state, lastBootedDate: today })
     this.deps.notifyTasksUpdated()
-    console.log(`[morningBoot] created (${today}): "${title}" (${task.id}) autoStart=${!!config.autoStart}`)
+    console.log(
+      `[morningBoot] created (${today}): "${title}" (${task.id}) autoStart=${!!config.autoStart} rotation=${!!rotation?.enabled}`
+    )
 
     if (!config.autoStart) return
 

@@ -89,6 +89,9 @@ export type MorningBootConfig = {
   title?: string      // 変数: {date}（YYYY-MM-DD）
   prompt?: string     // 変数: {date}
   autoStart?: boolean // false なら起票のみ（起動は人がやる）
+  // 起票するタスクに載せるセッションローテーション設定。
+  // rotationDefaults（全タスクに効くグローバル既定値）とは別で、このタスクにだけ効く
+  rotation?: Omit<RotationConfig, 'history'>
 }
 
 // セッションローテーションの現在状態
