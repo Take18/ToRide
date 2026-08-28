@@ -188,20 +188,16 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **通知**: rotation有効タスクでは80%/90%通知を抑制。ただし**保留・停止・中止の通知は必ず出す**（無音が「正常」を意味するのを防ぐため）
 - **履歴**: `rotation.history` に回数・時刻・理由を記録。`{rotationCount}` として bootPrompt に展開
 
-### 朝のオーケストレータ自動起票（morningBoot）
+### オーケストレータ起票ボタン（morningBoot）
 
-指定時刻に orchestrate タスクを **1日1本だけ** 立てる opt-in 機能（`MorningBootService`）。
+ダッシュボードの「オーケストレータを立てる」ボタンで orchestrate タスクを1本起票して起動する（`MorningBootService`）。
 
-- **冪等性は2層**: 永続の日付スタンプ（`app_settings` の `morningBootState` キー）＋ 実行時のタスク一覧チェック。一覧チェックだけだと「朝立てて夕方 done → 夜アプリ再起動」で2本目が立つ
-- **見送りもその日の打ち切り**: 一覧に該当タスクが既にあれば作らず、日付スタンプだけ打つ。でないと人が done にした瞬間に次の tick が立てる
-- **重複チェックのスコープは `repoId` 一致の orchestrate に限定**: 全 orchestrate を見ると、別リポジトリのオーケストレータが走っている間ずっと見送られる
-- **発火は1分tick1本**: `enabled && now >= 今日のtime && lastBootedDate !== today` の式だけで、定時発火・スリープ復帰・アプリ起動時の catch-up を兼ねる。時刻ぴったりの発火は要件ではない（「1日1本が確実に立つ」が要件）
-- **有効化した日は立てない**: 設定をいじっただけでセッションが起動する驚きを避けるため、`enabled` を false→true と観測した tick で `lastBootedDate` を今日にする
-- **start 失敗はリトライしない**: タスク生成の時点でスタンプ済み。失敗時だけデスクトップ通知（warning）を出す。ログだけだと朝が立たなかったことに人が気づけない
-- **「今日ぶんを立てる」ボタン**: 設定画面から手動起票。`enabled` / `time` / `weekdays` は見ないが、冪等性の判定（日付スタンプ＋既存タスクチェック）は自動起票と同じ経路を通る。自動発火を使わずボタンだけの運用ができる
-- **曜日フィルタ**: `weekdays`（0=日〜6=土、省略・空なら毎日）。曜日外の日は日付スタンプを進めない（進めるとその日にボタンを押しても打ち切られる）。祝日は判定しない（カレンダーを持っても有給や代休でズレるため、ボタンで吸収する）
-- **rotation は morningBoot 側に持つ**: 起票するタスクにだけ載せる（`rotationDefaults` はグローバル既定値なので、他リポジトリで走っている orchestrate にも効いてしまう）。`rotation.bootPrompt` 省略時は `morningBoot.prompt` を流用する
-- **ログ**: `[morningBoot] created / skipped / start-failed`。見送りは正常系なので `console.log`
+- **発火は人がボタンを押したときだけ**。時刻での自動起票は持たない（平日判定をコードに持たせると祝日と有給で崩れるため、押す人に任せる）
+- **冪等性は既存タスクチェックのみ**: `repoId` 一致の orchestrate が `will_do` / `doing` にあれば起票せず `skipped` を返す。`done` は見ないので、完了させてからもう一度押せばまた立つ
+- **重複チェックのスコープを `repoId` 一致に限る**理由: 全 orchestrate を見ると、別リポジトリのオーケストレータが走っている間ずっと立てられなくなる
+- **設定画面に出すのは `title` と `prompt` だけ**。`repoId` / `rotation` / `autoStart` は毎回変える値ではないので AppSettings 側だけに置く。代わりにボタンの隣へ「どこに立つか」を1行出す
+- **rotation はタスク単位で載せる**: `rotationDefaults` はグローバル既定値なので、そこに書くと他リポジトリで走っている orchestrate にも効いてしまう。`rotation.bootPrompt` 省略時は `morningBoot.prompt` を流用する
+- **ログ**: `[morningBoot] created / skipped / start-failed`。見送りは正常系なので `console.log`。結果は押した人の画面にトーストで返るので、デスクトップ通知は出さない
 
 ### ペイン・開発サーバー・複数リポジトリ
 
@@ -277,7 +273,7 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 | `orchestrateSystemPrompt` | orchestrateタスク起動時に先頭に付与するシステムプロンプト（未設定時はデフォルト） |
 | `rotationDefaults` | セッションローテーションのグローバル既定値（enabled / threshold / handoffPath / bootPrompt）。タスク側が未指定のキーだけフォールバック |
 | `rotationHandoffInstruction` | handoffを書かせる指示文のテンプレート（変数: `{used}` `{handoffPath}`） |
-| `morningBoot` | 朝のorchestrateタスク自動起票（enabled / time "HH:MM" / weekdays / repoId / title / prompt / autoStart / rotation。title・prompt・rotation.bootPromptで `{date}` を展開。設定画面にUIあり） |
+| `morningBoot` | オーケストレータ起票ボタンの内容（title / prompt は設定画面にUIあり。repoId / autoStart / rotation は設定のみ。title・prompt・rotation.bootPromptで `{date}` を展開） |
 | `notificationsEnabled` | デスクトップ通知の有効/無効（デフォルトtrue） |
 | `stopHookPort` | ローカルHTTPサーバーのポート（デフォルト39457） |
 | `pluginSettings` | チケットプラグイン設定（暗号化フィールドはsafeStorage管理） |
@@ -329,8 +325,5 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **エコー検証の照合対象**: 日本語本文ではなく `handoffPath`（ASCII）の末尾。CJKはTUI上で全角幅として描画され折り返し計算が半角と異なるため。照合前に空白・改行を全除去して正規化する。指示文の最終行を `{handoffPath}` で終わらせているのはこのため
 - **ローテーションのバッファ**: `ClaudeService.cleanBuffers` は `resetContextTracking()` でクリアされるため流用せず、`SessionRotationService` が `terminalService.onData` に自前リスナを持つ
 - **rotation設定の保存先**: `BaseTask.rotation` は `data` JSON カラム。ランタイム状態（保留・baseline等）は `task_runtime.rotation_state` にJSONで保存（再起動でクリア）
-- **morningBoot の日付スタンプの置き場**: `app_settings` テーブルの `morningBootState` キー（`{ lastBootedDate, enabledSeen }`）。`task_runtime` は起動時に全削除されるので使えず、`settings` 本体（人が書く設定）にも混ぜない
-- **morningBoot の有効化検知**: `enabledSeen` を tick 側で持つことで、設定画面経由でも DB の JSON 直編集でも同じように「有効化した日はスキップ」が効く
-- **有効化当日スキップは `lastBootedDate` ではなく `enabledSinceDate` に記録する**: `lastBootedDate` に書くと、有効化した日は「今日ぶんを立てる」ボタンを押しても打ち切られてしまう
-- **手動起票では start 失敗の通知を出さない**: 結果が設定画面のトーストに返るため。自動起票のときだけ通知する
+- **morningBoot は永続状態を持たない**: 人がボタンを押したときだけ動くので、日付スタンプでの打ち切りは不要（判断はタスク一覧だけで完結する）
 - **`task_runtime` の upsert**: 起動時に `DELETE FROM task_runtime` するため既存タスクの行が消える。`TaskService.update()` は runtime 更新前に `INSERT OR IGNORE` で行を作る（無いと pid / contextUsed 等の UPDATE が全て空振りする）

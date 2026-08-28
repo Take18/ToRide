@@ -16,9 +16,20 @@ type Props = {
   onNewTask: () => void
   onSyncPRs?: () => void
   prSyncing?: boolean
+  onBootOrchestrator?: () => void
+  /** どこに立つかの1行表示（例: my-ai（repo10）に起票します） */
+  orchestratorTarget?: string
+  orchestratorBooting?: boolean
 }
 
-export default function FilterBar({ onNewTask, onSyncPRs, prSyncing }: Props) {
+export default function FilterBar({
+  onNewTask,
+  onSyncPRs,
+  prSyncing,
+  onBootOrchestrator,
+  orchestratorTarget,
+  orchestratorBooting
+}: Props) {
   const navigate = useNavigate()
   const searchQuery = useTaskStore((s) => s.searchQuery)
   const typeFilters = useTaskStore((s) => s.typeFilters)
@@ -85,6 +96,20 @@ export default function FilterBar({ onNewTask, onSyncPRs, prSyncing }: Props) {
         >
           {prSyncing ? '同期中...' : 'PR同期'}
         </button>
+      )}
+      {onBootOrchestrator && (
+        <div className="flex items-center gap-2">
+          {orchestratorTarget && (
+            <span className="text-[11px] text-gray-400 whitespace-nowrap">{orchestratorTarget}</span>
+          )}
+          <button
+            onClick={onBootOrchestrator}
+            disabled={orchestratorBooting}
+            className="px-3 py-1.5 rounded bg-orange-700 hover:bg-orange-600 text-sm text-white disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {orchestratorBooting ? '起票中...' : 'オーケストレータを立てる'}
+          </button>
+        </div>
       )}
       <button
         onClick={() => navigate('/archive')}

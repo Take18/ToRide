@@ -4,9 +4,10 @@ import FilterBar from '../components/FilterBar/FilterBar'
 import PaneStatusSidebar from '../components/PaneStatusSidebar/PaneStatusSidebar'
 import TaskCard from '../components/TaskCard/TaskCard'
 import TaskForm from '../components/TaskForm/TaskForm'
+import Toast from '../components/Common/Toast'
 import { useTerminalStore } from '../stores/terminalStore'
 import type { TaskStatus, RuntimeTask } from '../types/task'
-import type { RepoConfig, LaunchMode } from '../types/ipc'
+import type { RepoConfig, LaunchMode, MorningBootConfig } from '../types/ipc'
 
 const COLUMNS: { status: TaskStatus; label: string; borderColor: string }[] = [
   { status: 'will_do', label: '未実行', borderColor: 'border-t-gray-500' },
@@ -21,6 +22,9 @@ export default function DashboardPage() {
   const [settingsLaunchMode, setSettingsLaunchMode] = useState<LaunchMode>('normal')
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [prSyncing, setPrSyncing] = useState(false)
+  const [morningBoot, setMorningBoot] = useState<MorningBootConfig | undefined>(undefined)
+  const [orchestratorBooting, setOrchestratorBooting] = useState(false)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const fetchTasks = useTaskStore((s) => s.fetchTasks)
   const filteredTasks = useTaskStore((s) => s.filteredTasks)
   const tasks = useTaskStore((s) => s.tasks)
@@ -89,6 +93,7 @@ export default function DashboardPage() {
     fetchTasks()
     window.api.settings.get().then((s) => {
       setRepos(s.repos ?? [])
+      setMorningBoot(s.morningBoot)
       if (s.useDangerouslySkipPermissions) setSettingsLaunchMode('bypass')
       else if (s.useAutoMode) setSettingsLaunchMode('auto')
       else setSettingsLaunchMode('normal')
@@ -116,6 +121,41 @@ export default function DashboardPage() {
     return repo.panes.some((p) => !occupiedPaneKeys.has(`${repo.id}:${p.id}`))
   }
 
+  // ボタンの隣に出す「どこに立つか」。設定画面には repoId を出さないので、ここで確認できるようにする
+  const orchestratorTarget = useMemo(() => {
+    const repo = morningBoot?.repoId
+      ? repos.find((r) => r.id === morningBoot.repoId)
+      : repos[0]
+    if (!repo) return '起票先のリポジトリがありません'
+    return `${repo.name}（${repo.id}）に起票します`
+  }, [morningBoot, repos])
+
+  const handleBootOrchestrator = async () => {
+    setOrchestratorBooting(true)
+    try {
+      const result = await window.api.morningBoot.runNow()
+      if (result.result === 'created') {
+        setToast({
+          message: result.started
+            ? `「${result.title}」を起票して起動しました`
+            : `「${result.title}」を起票しました`,
+          type: 'success'
+        })
+      } else if (result.result === 'skipped') {
+        setToast({ message: `見送りました: ${result.message}`, type: 'success' })
+      } else if (result.result === 'start-failed') {
+        setToast({ message: `起票しましたが起動に失敗しました: ${result.message}`, type: 'error' })
+      } else {
+        setToast({ message: result.message, type: 'error' })
+      }
+      fetchTasks()
+    } catch (e) {
+      setToast({ message: `エラー: ${(e as Error).message}`, type: 'error' })
+    } finally {
+      setOrchestratorBooting(false)
+    }
+  }
+
   const handleSyncPRs = async () => {
     setPrSyncing(true)
     try {
@@ -131,6 +171,9 @@ export default function DashboardPage() {
         onNewTask={() => { setEditingTask(null); setFormOpen(true) }}
         onSyncPRs={handleSyncPRs}
         prSyncing={prSyncing}
+        onBootOrchestrator={handleBootOrchestrator}
+        orchestratorTarget={orchestratorTarget}
+        orchestratorBooting={orchestratorBooting}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -186,6 +229,14 @@ export default function DashboardPage() {
         onClose={() => { setFormOpen(false); setEditingTask(null) }}
         editTask={editingTask ?? undefined}
       />
+
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </div>
   )
 }

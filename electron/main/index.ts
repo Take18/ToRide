@@ -46,7 +46,6 @@ let devServerServiceInstance: DevServerService | null = null
 let terminalServiceInstance: TerminalService | null = null
 let localHttpServerInstance: LocalHttpServer | null = null
 let prSyncTimerId: ReturnType<typeof setInterval> | null = null
-let morningBootServiceInstance: MorningBootService | null = null
 
 function getWindow(): BrowserWindow | null {
   return mainWindow
@@ -429,34 +428,13 @@ app.whenReady().then(() => {
     }
   }, 60_000)
 
-  // 毎朝の orchestrate タスク自動起票（1分tickで定時発火・スリープ復帰・起動時catch-upを兼ねる）
+  // ダッシュボードの「オーケストレータを立てる」ボタン
   const morningBootService = new MorningBootService({
-    db,
     taskService,
     getSettings,
     startTask: startTaskFn,
     notifyTasksUpdated: () => getWindow()?.webContents.send('tasks:updated'),
-    notifyStartFailed: (message, taskId) => {
-      const { notificationsEnabled = true } = getSettings()
-      if (!notificationsEnabled) return
-      const notification = new Notification({
-        title: 'ToRide: 朝のオーケストレータ起動に失敗しました',
-        body: message,
-        urgency: 'critical',
-      })
-      notification.on('click', () => {
-        const win = getWindow()
-        win?.show()
-        win?.focus()
-        win?.webContents.send('navigation:goto', { type: 'task', taskId })
-      })
-      notification.show()
-    },
   })
-  morningBootServiceInstance = morningBootService
-  morningBootService.start()
-
-  // 「今日ぶんを立てる」ボタン。冪等性の判定は自動起票とまったく同じものを通る
   ipcMain.handle('morningBoot:run-now', () => morningBootService.runNow())
 
   // Settings handlers
@@ -609,7 +587,6 @@ app.whenReady().then(() => {
 
 app.on('will-quit', () => {
   if (prSyncTimerId) clearInterval(prSyncTimerId)
-  morningBootServiceInstance?.stop()
   devServerServiceInstance?.stopAll()
   terminalServiceInstance?.killAll()
   localHttpServerInstance?.stop()
