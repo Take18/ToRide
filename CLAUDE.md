@@ -48,6 +48,7 @@ electron/
       ModelListService.ts # /v1/models からのモデル一覧取得
       SlashCommandService.ts # スラッシュコマンド・スキルの列挙（補完候補）
       McpHookService.ts   # ~/.claude/settings.json のmcpServers自動管理
+      ResidentOrchestratorService.ts # 常駐オーケストレータの起票・起動
     plugins/
       PluginRegistry.ts   # プラグインレジストリ
       catalog.ts          # プラグイン一覧（Wrike・GitHub Issue）
@@ -193,6 +194,18 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **通知**: rotation有効タスクでは80%/90%通知を抑制。ただし**保留・停止・中止の通知は必ず出す**（無音が「正常」を意味するのを防ぐため）
 - **履歴**: `rotation.history` に回数・時刻・理由を記録。`{rotationCount}` として bootPrompt に展開
 
+### 常駐オーケストレータ（residentOrchestrator）
+
+ダッシュボードの「常駐オーケストレータを立てる」ボタンで orchestrate タスクを1本起票して起動する（`ResidentOrchestratorService`）。
+
+- **発火は人がボタンを押したときだけ**。時刻での自動起票は持たない（平日判定をコードに持たせると祝日と有給で崩れるため、押す人に任せる）
+- **冪等性は既存タスクチェックのみ**: `repoId` 一致の orchestrate が `will_do` / `doing` にあれば起票せず `skipped` を返す。`done` は見ないので、完了させてからもう一度押せばまた立つ
+- **重複チェックのスコープを `repoId` 一致に限る**理由: 全 orchestrate を見ると、別リポジトリのオーケストレータが走っている間ずっと立てられなくなる
+- **設定画面に出すのは `repoId` / `title` / `prompt`**。`rotation` / `autoStart` は毎回変える値ではないので AppSettings 側だけに置く。ボタンの隣にも「どこに立つか」を1行出す
+- **`repoId` はフォールバックせずエラーにする**: 未設定・設定に無いIDのときは先頭のリポジトリや homedir に落とさない。意図しないリポジトリに立つと消す手間がかかるうえ、既定でそのまま起動まで進んでしまう。ボタン自体も disabled にして押す前に気づけるようにする
+- **rotation はタスク単位で載せる**: `rotationDefaults` はグローバル既定値なので、そこに書くと他リポジトリで走っている orchestrate にも効いてしまう。`rotation.bootPrompt` 省略時は `residentOrchestrator.prompt` を流用する
+- **ログ**: `[residentOrchestrator] created / skipped / start-failed`。見送りは正常系なので `console.log`。結果は押した人の画面にトーストで返るので、デスクトップ通知は出さない
+
 ### ペイン・開発サーバー・複数リポジトリ
 
 - **ペインステータスサイドバー（左192px）**: リポジトリ名ヘッダーつきグループ表示 / ペインID / パス / 占有状況
@@ -267,6 +280,7 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 | `orchestrateSystemPrompt` | orchestrateタスク起動時に先頭に付与するシステムプロンプト（未設定時はデフォルト） |
 | `rotationDefaults` | セッションローテーションのグローバル既定値（enabled / threshold / handoffPath / bootPrompt）。タスク側が未指定のキーだけフォールバック |
 | `rotationHandoffInstruction` | handoffを書かせる指示文のテンプレート（変数: `{used}` `{handoffPath}`） |
+| `residentOrchestrator` | 常駐オーケストレータの内容（repoId / title / prompt は設定画面にUIあり。autoStart / rotation は設定のみ。title・prompt・rotation.bootPromptで `{date}` を展開） |
 | `notificationsEnabled` | デスクトップ通知の有効/無効（デフォルトtrue） |
 | `stopHookPort` | ローカルHTTPサーバーのポート（デフォルト39457） |
 | `pluginSettings` | チケットプラグイン設定（暗号化フィールドはsafeStorage管理） |
@@ -323,4 +337,5 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **エコー検証の照合対象**: 日本語本文ではなく `handoffPath`（ASCII）の末尾。CJKはTUI上で全角幅として描画され折り返し計算が半角と異なるため。照合前に空白・改行を全除去して正規化する。指示文の最終行を `{handoffPath}` で終わらせているのはこのため
 - **ローテーションのバッファ**: `ClaudeService.cleanBuffers` は `resetContextTracking()` でクリアされるため流用せず、`SessionRotationService` が `terminalService.onData` に自前リスナを持つ
 - **rotation設定の保存先**: `BaseTask.rotation` は `data` JSON カラム。ランタイム状態（保留・baseline等）は `task_runtime.rotation_state` にJSONで保存（再起動でクリア）
+- **residentOrchestrator は永続状態を持たない**: 人がボタンを押したときだけ動くので、日付スタンプでの打ち切りは不要（判断はタスク一覧だけで完結する）
 - **`task_runtime` の upsert**: 起動時に `DELETE FROM task_runtime` するため既存タスクの行が消える。`TaskService.update()` は runtime 更新前に `INSERT OR IGNORE` で行を作る（無いと pid / contextUsed 等の UPDATE が全て空振りする）

@@ -9,6 +9,7 @@ import type {
   LaunchMode,
   ClaudeModel,
   RotationStatus,
+  ResidentOrchestratorRunResult,
   SlashCommandInfo,
   NavigationPayload,
   GitHubTokenVerifyResult
@@ -167,6 +168,9 @@ const api = {
       ipcRenderer.invoke('rotation:status', taskId),
     rotateNow: (taskId: string): Promise<void> =>
       ipcRenderer.invoke('rotation:rotate-now', taskId),
+  },
+  residentOrchestrator: {
+    runNow: (): Promise<ResidentOrchestratorRunResult> => ipcRenderer.invoke('residentOrchestrator:run-now'),
   },
   mcp: {
     status: (): Promise<{ installed: boolean; url: string }> =>

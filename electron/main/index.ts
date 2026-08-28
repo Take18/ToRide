@@ -18,6 +18,7 @@ import { ModelListService } from './services/ModelListService'
 import { SlashCommandService } from './services/SlashCommandService'
 import { McpHookService } from './services/McpHookService'
 import { SessionRotationService } from './services/SessionRotationService'
+import { ResidentOrchestratorService } from './services/ResidentOrchestratorService'
 import { importImages, deleteImages } from './services/ImageStore'
 import { PluginRegistry } from './plugins/PluginRegistry'
 import { PLUGIN_CATALOG } from './plugins/catalog'
@@ -433,6 +434,15 @@ app.whenReady().then(() => {
       }
     }
   }, 60_000)
+
+  // ダッシュボードの「常駐オーケストレータを立てる」ボタン
+  const residentOrchestratorService = new ResidentOrchestratorService({
+    taskService,
+    getSettings,
+    startTask: startTaskFn,
+    notifyTasksUpdated: () => getWindow()?.webContents.send('tasks:updated'),
+  })
+  ipcMain.handle('residentOrchestrator:run-now', () => residentOrchestratorService.runNow())
 
   // Settings handlers
   ipcMain.handle('settings:get', async () => {

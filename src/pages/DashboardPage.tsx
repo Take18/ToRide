@@ -4,9 +4,10 @@ import FilterBar from '../components/FilterBar/FilterBar'
 import PaneStatusSidebar from '../components/PaneStatusSidebar/PaneStatusSidebar'
 import TaskCard from '../components/TaskCard/TaskCard'
 import TaskForm from '../components/TaskForm/TaskForm'
+import Toast from '../components/Common/Toast'
 import { useTerminalStore } from '../stores/terminalStore'
 import type { TaskStatus, RuntimeTask } from '../types/task'
-import type { RepoConfig, LaunchMode } from '../types/ipc'
+import type { RepoConfig, LaunchMode, ResidentOrchestratorConfig } from '../types/ipc'
 
 const COLUMNS: { status: TaskStatus; label: string; borderColor: string }[] = [
   { status: 'will_do', label: '未実行', borderColor: 'border-t-gray-500' },
@@ -21,6 +22,9 @@ export default function DashboardPage() {
   const [settingsLaunchMode, setSettingsLaunchMode] = useState<LaunchMode>('normal')
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [prSyncing, setPrSyncing] = useState(false)
+  const [residentOrchestrator, setResidentOrchestrator] = useState<ResidentOrchestratorConfig | undefined>(undefined)
+  const [orchestratorBooting, setOrchestratorBooting] = useState(false)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
   const fetchTasks = useTaskStore((s) => s.fetchTasks)
   const filteredTasks = useTaskStore((s) => s.filteredTasks)
   const tasks = useTaskStore((s) => s.tasks)
@@ -89,6 +93,7 @@ export default function DashboardPage() {
     fetchTasks()
     window.api.settings.get().then((s) => {
       setRepos(s.repos ?? [])
+      setResidentOrchestrator(s.residentOrchestrator)
       if (s.useDangerouslySkipPermissions) setSettingsLaunchMode('bypass')
       else if (s.useAutoMode) setSettingsLaunchMode('auto')
       else setSettingsLaunchMode('normal')
@@ -116,6 +121,45 @@ export default function DashboardPage() {
     return repo.panes.some((p) => !occupiedPaneKeys.has(`${repo.id}:${p.id}`))
   }
 
+  // ボタンの隣に出す「どこに立つか」。設定画面には repoId を出さないので、ここで確認できるようにする。
+  // 未設定のまま押せると意図しないリポジトリに立ってそのまま起動してしまうため、その場合はボタンを止める
+  const orchestrator = useMemo(() => {
+    if (!residentOrchestrator?.repoId) {
+      return { label: '設定画面で起票先のリポジトリを選んでください', ready: false }
+    }
+    const repo = repos.find((r) => r.id === residentOrchestrator.repoId)
+    if (!repo) {
+      return { label: `リポジトリ「${residentOrchestrator.repoId}」が設定に見つかりません`, ready: false }
+    }
+    return { label: `${repo.name}（${repo.id}）に起票します`, ready: true }
+  }, [residentOrchestrator, repos])
+
+  const handleBootOrchestrator = async () => {
+    setOrchestratorBooting(true)
+    try {
+      const result = await window.api.residentOrchestrator.runNow()
+      if (result.result === 'created') {
+        setToast({
+          message: result.started
+            ? `「${result.title}」を起票して起動しました`
+            : `「${result.title}」を起票しました`,
+          type: 'success'
+        })
+      } else if (result.result === 'skipped') {
+        setToast({ message: `見送りました: ${result.message}`, type: 'success' })
+      } else if (result.result === 'start-failed') {
+        setToast({ message: `起票しましたが起動に失敗しました: ${result.message}`, type: 'error' })
+      } else {
+        setToast({ message: result.message, type: 'error' })
+      }
+      fetchTasks()
+    } catch (e) {
+      setToast({ message: `エラー: ${(e as Error).message}`, type: 'error' })
+    } finally {
+      setOrchestratorBooting(false)
+    }
+  }
+
   const handleSyncPRs = async () => {
     setPrSyncing(true)
     try {
@@ -131,6 +175,10 @@ export default function DashboardPage() {
         onNewTask={() => { setEditingTask(null); setFormOpen(true) }}
         onSyncPRs={handleSyncPRs}
         prSyncing={prSyncing}
+        onBootOrchestrator={handleBootOrchestrator}
+        orchestratorTarget={orchestrator.label}
+        orchestratorReady={orchestrator.ready}
+        orchestratorBooting={orchestratorBooting}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -186,6 +234,14 @@ export default function DashboardPage() {
         onClose={() => { setFormOpen(false); setEditingTask(null) }}
         editTask={editingTask ?? undefined}
       />
+
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
     </div>
   )
 }

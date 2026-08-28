@@ -1156,6 +1156,73 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {/* 常駐オーケストレータ */}
+        <section>
+          <h2 className="text-sm font-semibold text-gray-300 mb-2">常駐オーケストレータ</h2>
+          <p className="text-xs text-gray-500 mb-3">
+            ダッシュボードの「常駐オーケストレータを立てる」ボタンで起票する orchestrate タスクの内容です。
+          </p>
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">起票先のリポジトリ</label>
+              <select
+                value={settings.residentOrchestrator?.repoId ?? ''}
+                onChange={(e) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    residentOrchestrator: {
+                      ...(prev.residentOrchestrator ?? {}),
+                      repoId: e.target.value || undefined,
+                    },
+                  }))
+                }
+                className="w-full px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-white focus:outline-none focus:border-blue-500"
+              >
+                <option value="">（未選択）</option>
+                {settings.repos.map((repo) => (
+                  <option key={repo.id} value={repo.id}>
+                    {repo.name}（{repo.id}）
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-gray-500 mt-1">
+                未選択のあいだはダッシュボードのボタンを押せません（意図しないリポジトリに立たないようにするため）。
+              </p>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">タイトル</label>
+              <input
+                type="text"
+                value={settings.residentOrchestrator?.title ?? ''}
+                onChange={(e) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    residentOrchestrator: { ...(prev.residentOrchestrator ?? {}), title: e.target.value },
+                  }))
+                }
+                placeholder={'常駐オーケストレータ {date}'}
+                className="w-full px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+              />
+              <p className="text-[11px] text-gray-500 mt-1">変数: {'{date}'}（YYYY-MM-DD）</p>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">プロンプト</label>
+              <textarea
+                value={settings.residentOrchestrator?.prompt ?? ''}
+                onChange={(e) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    residentOrchestrator: { ...(prev.residentOrchestrator ?? {}), prompt: e.target.value },
+                  }))
+                }
+                placeholder={'変数: {date}'}
+                rows={8}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 resize-y font-mono"
+              />
+            </div>
+          </div>
+        </section>
+
         {/* プラグイン管理 */}
         {catalog.length > 0 && (
           <section>

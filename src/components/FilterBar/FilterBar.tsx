@@ -16,9 +16,23 @@ type Props = {
   onNewTask: () => void
   onSyncPRs?: () => void
   prSyncing?: boolean
+  onBootOrchestrator?: () => void
+  /** どこに立つかの1行表示（例: my-ai（repo10）に起票します） */
+  orchestratorTarget?: string
+  /** 起票先が確定しているか。false ならボタンを押させない */
+  orchestratorReady?: boolean
+  orchestratorBooting?: boolean
 }
 
-export default function FilterBar({ onNewTask, onSyncPRs, prSyncing }: Props) {
+export default function FilterBar({
+  onNewTask,
+  onSyncPRs,
+  prSyncing,
+  onBootOrchestrator,
+  orchestratorTarget,
+  orchestratorReady,
+  orchestratorBooting
+}: Props) {
   const navigate = useNavigate()
   const searchQuery = useTaskStore((s) => s.searchQuery)
   const typeFilters = useTaskStore((s) => s.typeFilters)
@@ -85,6 +99,26 @@ export default function FilterBar({ onNewTask, onSyncPRs, prSyncing }: Props) {
         >
           {prSyncing ? '同期中...' : 'PR同期'}
         </button>
+      )}
+      {onBootOrchestrator && (
+        // 「〜に起票します」がどのボタンの説明なのか分かるよう、枠と色でボタンと1つのまとまりに見せる
+        <div className="flex items-center gap-2 pl-2.5 pr-1 py-1 rounded border border-orange-900 bg-orange-950/30">
+          {orchestratorTarget && (
+            <span
+              className={`text-[11px] whitespace-nowrap ${orchestratorReady ? 'text-orange-300' : 'text-yellow-500'}`}
+            >
+              {orchestratorTarget}
+            </span>
+          )}
+          <button
+            onClick={onBootOrchestrator}
+            disabled={orchestratorBooting || orchestratorReady === false}
+            title={orchestratorReady === false ? orchestratorTarget : undefined}
+            className="px-3 py-1 rounded bg-orange-700 hover:bg-orange-600 text-sm text-white disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {orchestratorBooting ? '起票中...' : '常駐オーケストレータを立てる'}
+          </button>
+        </div>
       )}
       <button
         onClick={() => navigate('/archive')}
