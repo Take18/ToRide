@@ -242,6 +242,9 @@ function GitHubTokenList({
 
 const TASK_TYPES = ['feat', 'design', 'review', 'bugfix', 'research', 'chore'] as const
 
+// morningBoot の曜日ボタン。添字が Date#getDay() の値（0=日 〜 6=土）
+const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土']
+
 const DEFAULT_ORCHESTRATE_PROMPT = `あなたはタスクオーケストレーターです。ToRide MCPツールを使ってミッションを自律的に実行してください。
 
 ## 基本方針
@@ -285,6 +288,7 @@ export default function SettingsPage() {
   const [pluginLoading, setPluginLoading] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  const [morningBootRunning, setMorningBootRunning] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const templateRefs = useRef<Record<string, HTMLTextAreaElement | null>>({})
   const dragSrc = useRef<{ ri: number; pi: number; di: number } | null>(null)
@@ -449,6 +453,33 @@ export default function SettingsPage() {
       setToast({ message: '保存に失敗しました', type: 'error' })
     } finally {
       setSaving(false)
+    }
+  }
+
+  // 「今日ぶんを立てる」: 画面の編集内容で判断させたいので、保存してから実行する
+  const handleMorningBootRunNow = async () => {
+    setMorningBootRunning(true)
+    try {
+      await window.api.settings.set(settings)
+      const result = await window.api.morningBoot.runNow()
+      if (result.result === 'created') {
+        setToast({
+          message: result.started
+            ? `「${result.title}」を起票して起動しました`
+            : `「${result.title}」を起票しました`,
+          type: 'success',
+        })
+      } else if (result.result === 'skipped') {
+        setToast({ message: `見送りました: ${result.message}`, type: 'success' })
+      } else if (result.result === 'start-failed') {
+        setToast({ message: `起票しましたが起動に失敗しました: ${result.message}`, type: 'error' })
+      } else {
+        setToast({ message: result.message, type: 'error' })
+      }
+    } catch (e) {
+      setToast({ message: `エラー: ${(e as Error).message}`, type: 'error' })
+    } finally {
+      setMorningBootRunning(false)
     }
   }
 
@@ -1151,6 +1182,236 @@ export default function SettingsPage() {
                 rows={5}
                 className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 resize-y font-mono"
               />
+            </div>
+          </div>
+        </section>
+
+        {/* 朝のオーケストレータ自動起票 */}
+        <section>
+          <h2 className="text-sm font-semibold text-gray-300 mb-2">朝のオーケストレータ自動起票</h2>
+          <p className="text-xs text-gray-500 mb-3">
+            設定した内容で orchestrate タスクを1日1本だけ立てます。
+            <br />
+            同じ日に既に orchestrate タスクがあれば立てません（手で立てた分も含む）。時刻を過ぎてからアプリを起動した場合は、その時点で立てます。
+          </p>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between bg-gray-800 rounded px-4 py-3">
+              <div>
+                <div className="text-sm text-white font-medium">今日ぶんを立てる</div>
+                <div className="text-xs text-gray-400 mt-0.5">
+                  自動起票を使わずボタンだけで運用できます。押す前に設定を保存します
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleMorningBootRunNow}
+                disabled={morningBootRunning}
+                className="px-3 py-1 rounded text-xs font-medium whitespace-nowrap bg-blue-700 hover:bg-blue-600 text-white disabled:opacity-40"
+              >
+                {morningBootRunning ? '実行中...' : '今すぐ立てる'}
+              </button>
+            </div>
+            <label className="flex items-center gap-2 text-xs text-gray-300">
+              <input
+                type="checkbox"
+                checked={settings.morningBoot?.enabled ?? false}
+                onChange={(e) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    morningBoot: { ...(prev.morningBoot ?? {}), enabled: e.target.checked },
+                  }))
+                }
+                className="accent-blue-500"
+              />
+              指定時刻に自動で立てる（有効化した当日は立ちません。上のボタンは有効・無効にかかわらず使えます）
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">時刻 (HH:MM) — 既定 09:00</label>
+                <input
+                  type="time"
+                  value={settings.morningBoot?.time ?? ''}
+                  onChange={(e) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      morningBoot: { ...(prev.morningBoot ?? {}), time: e.target.value },
+                    }))
+                  }
+                  className="w-full px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">リポジトリ</label>
+                <select
+                  value={settings.morningBoot?.repoId ?? ''}
+                  onChange={(e) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      morningBoot: { ...(prev.morningBoot ?? {}), repoId: e.target.value || undefined },
+                    }))
+                  }
+                  className="w-full px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">（未選択）</option>
+                  {settings.repos.map((repo) => (
+                    <option key={repo.id} value={repo.id}>
+                      {repo.name}（{repo.id}）
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">自動で立てる曜日（すべて外すと毎日）</label>
+              <div className="flex gap-2">
+                {WEEKDAY_LABELS.map((label, day) => {
+                  const selected = settings.morningBoot?.weekdays?.includes(day) ?? false
+                  return (
+                    <button
+                      key={day}
+                      type="button"
+                      onClick={() =>
+                        setSettings((prev) => {
+                          const current = prev.morningBoot?.weekdays ?? []
+                          const next = current.includes(day)
+                            ? current.filter((d) => d !== day)
+                            : [...current, day].sort((a, b) => a - b)
+                          return {
+                            ...prev,
+                            morningBoot: {
+                              ...(prev.morningBoot ?? {}),
+                              weekdays: next.length > 0 ? next : undefined,
+                            },
+                          }
+                        })
+                      }
+                      className={`w-8 h-8 rounded text-xs font-medium ${
+                        selected
+                          ? 'bg-blue-700 text-white'
+                          : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
+                曜日外の日は自動では立ちませんが、「今すぐ立てる」ボタンは押せます（祝日は判定しません）。
+              </p>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">タイトル</label>
+              <input
+                type="text"
+                value={settings.morningBoot?.title ?? ''}
+                onChange={(e) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    morningBoot: { ...(prev.morningBoot ?? {}), title: e.target.value },
+                  }))
+                }
+                placeholder={'オーケストレータ {date}'}
+                className="w-full px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+              />
+              <p className="text-[11px] text-gray-500 mt-1">変数: {'{date}'}（YYYY-MM-DD）</p>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">プロンプト</label>
+              <textarea
+                value={settings.morningBoot?.prompt ?? ''}
+                onChange={(e) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    morningBoot: { ...(prev.morningBoot ?? {}), prompt: e.target.value },
+                  }))
+                }
+                placeholder={'変数: {date}'}
+                rows={6}
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 resize-y font-mono"
+              />
+            </div>
+            <label className="flex items-center gap-2 text-xs text-gray-300">
+              <input
+                type="checkbox"
+                checked={settings.morningBoot?.autoStart ?? false}
+                onChange={(e) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    morningBoot: { ...(prev.morningBoot ?? {}), autoStart: e.target.checked },
+                  }))
+                }
+                className="accent-blue-500"
+              />
+              起票したタスクを自動で起動する（外すと起票のみ）
+            </label>
+            <div className="border-t border-gray-700 pt-3 space-y-3">
+              <label className="flex items-center gap-2 text-xs text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={settings.morningBoot?.rotation?.enabled ?? false}
+                  onChange={(e) =>
+                    setSettings((prev) => ({
+                      ...prev,
+                      morningBoot: {
+                        ...(prev.morningBoot ?? {}),
+                        rotation: { ...(prev.morningBoot?.rotation ?? {}), enabled: e.target.checked },
+                      },
+                    }))
+                  }
+                  className="accent-blue-500"
+                />
+                このタスクにセッションローテーションを設定する（他のタスクには影響しません）
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">開始する使用率 (%) — 既定 60</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={99}
+                    value={settings.morningBoot?.rotation?.threshold ?? ''}
+                    onChange={(e) =>
+                      setSettings((prev) => ({
+                        ...prev,
+                        morningBoot: {
+                          ...(prev.morningBoot ?? {}),
+                          rotation: {
+                            ...(prev.morningBoot?.rotation ?? {}),
+                            threshold: e.target.value ? Number(e.target.value) : undefined,
+                          },
+                        },
+                      }))
+                    }
+                    placeholder="60"
+                    className="w-full px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">引き継ぎファイル (handoffPath)</label>
+                  <input
+                    type="text"
+                    value={settings.morningBoot?.rotation?.handoffPath ?? ''}
+                    onChange={(e) =>
+                      setSettings((prev) => ({
+                        ...prev,
+                        morningBoot: {
+                          ...(prev.morningBoot ?? {}),
+                          rotation: {
+                            ...(prev.morningBoot?.rotation ?? {}),
+                            handoffPath: e.target.value,
+                          },
+                        },
+                      }))
+                    }
+                    placeholder="~/my-ai/state/orchestrator/handoff.md"
+                    className="w-full px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] text-gray-500 leading-relaxed">
+                新セッションへの追記文面（bootPrompt）は、未設定なら上のプロンプトがそのまま使われます。
+              </p>
             </div>
           </div>
         </section>
