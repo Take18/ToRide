@@ -501,7 +501,11 @@ export class McpServerService {
                   : `log: 全${total}行 / 末尾${shown.length}行を表示`,
               ].join('\n')
 
-              const body = shown.length ? shown.join('\n') : '(ログなし。まだ起動していない可能性があります)'
+              const body = shown.length
+                ? shown.join('\n')
+                : keyword
+                  ? `("${keyword}" にマッチする行はありません)`
+                  : '(ログなし。まだ起動していない可能性があります)'
               return { content: [{ type: 'text' as const, text: `${header}\n--- log ---\n${body}` }] }
             }
             case 'stop_dev_server': {
