@@ -34,7 +34,7 @@ export class ResidentOrchestratorService {
       return {
         result: 'error',
         message:
-          '起票先のリポジトリ（residentOrchestrator.repoId）が設定されていません。設定のエクスポート／インポートで設定してください',
+          '起票先のリポジトリが設定されていません。設定画面の「常駐オーケストレータ」で選んでください',
       }
     }
     if (!settings.repos.some((r) => r.id === config.repoId)) {

@@ -125,7 +125,7 @@ export default function DashboardPage() {
   // 未設定のまま押せると意図しないリポジトリに立ってそのまま起動してしまうため、その場合はボタンを止める
   const orchestrator = useMemo(() => {
     if (!residentOrchestrator?.repoId) {
-      return { label: '起票先のリポジトリが未設定です（residentOrchestrator.repoId）', ready: false }
+      return { label: '設定画面で起票先のリポジトリを選んでください', ready: false }
     }
     const repo = repos.find((r) => r.id === residentOrchestrator.repoId)
     if (!repo) {

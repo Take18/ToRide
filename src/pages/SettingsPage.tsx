@@ -1163,6 +1163,32 @@ export default function SettingsPage() {
           </p>
           <div className="space-y-3">
             <div>
+              <label className="block text-xs text-gray-400 mb-1">起票先のリポジトリ</label>
+              <select
+                value={settings.residentOrchestrator?.repoId ?? ''}
+                onChange={(e) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    residentOrchestrator: {
+                      ...(prev.residentOrchestrator ?? {}),
+                      repoId: e.target.value || undefined,
+                    },
+                  }))
+                }
+                className="w-full px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-sm text-white focus:outline-none focus:border-blue-500"
+              >
+                <option value="">（未選択）</option>
+                {settings.repos.map((repo) => (
+                  <option key={repo.id} value={repo.id}>
+                    {repo.name}（{repo.id}）
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-gray-500 mt-1">
+                未選択のあいだはダッシュボードのボタンを押せません（意図しないリポジトリに立たないようにするため）。
+              </p>
+            </div>
+            <div>
               <label className="block text-xs text-gray-400 mb-1">タイトル</label>
               <input
                 type="text"
