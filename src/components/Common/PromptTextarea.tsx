@@ -56,6 +56,7 @@ export const PromptTextarea = forwardRef<HTMLTextAreaElement, Props>(function Pr
 ) {
   const innerRef = useRef<HTMLTextAreaElement | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLUListElement>(null)
   const [commands, setCommands] = useState<SlashCommandInfo[]>([])
   const [query, setQuery] = useState<string | null>(null)
   const [highlight, setHighlight] = useState(0)
@@ -63,6 +64,8 @@ export const PromptTextarea = forwardRef<HTMLTextAreaElement, Props>(function Pr
   // 候補を確定した直後や Escape で閉じた直後に、フォーカス・keyup 経由で再表示されるのを抑える。
   // 次に文字が入力されたら解除する
   const suppressed = useRef(false)
+  // 上下キーでの移動時だけスクロール追従する（マウスホバーでも highlight は動くため）
+  const keyNav = useRef(false)
 
   const setRefs = useCallback(
     (el: HTMLTextAreaElement | null) => {
@@ -105,6 +108,14 @@ export const PromptTextarea = forwardRef<HTMLTextAreaElement, Props>(function Pr
     setHighlight(0)
   }, [query])
 
+  // ハイライト項目をリスト内にスクロールして追従させる
+  useEffect(() => {
+    if (!keyNav.current) return
+    keyNav.current = false
+    const items = listRef.current?.querySelectorAll<HTMLLIElement>('li[data-idx]')
+    items?.[highlight]?.scrollIntoView({ block: 'nearest' })
+  }, [highlight])
+
   // 外側クリックで閉じる
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -143,10 +154,12 @@ export const PromptTextarea = forwardRef<HTMLTextAreaElement, Props>(function Pr
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault()
+        keyNav.current = true
         setHighlight((prev) => (prev + 1) % filtered.length)
         break
       case 'ArrowUp':
         e.preventDefault()
+        keyNav.current = true
         setHighlight((prev) => (prev - 1 + filtered.length) % filtered.length)
         break
       case 'Enter':
@@ -187,10 +200,14 @@ export const PromptTextarea = forwardRef<HTMLTextAreaElement, Props>(function Pr
         required={required}
       />
       {isOpen && (
-        <ul className="absolute z-50 left-0 right-0 mt-1 bg-gray-700 border border-gray-600 rounded shadow-lg max-h-56 overflow-y-auto">
+        <ul
+          ref={listRef}
+          className="absolute z-50 left-0 right-0 mt-1 bg-gray-700 border border-gray-600 rounded shadow-lg max-h-56 overflow-y-auto"
+        >
           {filtered.map((c, i) => (
             <li
               key={`${c.source}:${c.kind}:${c.name}`}
+              data-idx={i}
               // blur より先に選択を確定させる
               onMouseDown={(e) => {
                 e.preventDefault()
