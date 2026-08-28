@@ -29,6 +29,16 @@ export type LaunchMode = 'normal' | 'auto' | 'bypass' | 'plan'
 // （一覧は /v1/models から動的取得。取得失敗時は opus/sonnet/haiku にフォールバック）
 export type ClaudeModel = 'default' | (string & {})
 
+// スラッシュコマンド／スキルの補完候補
+// name は名前空間つき（例: "implement" / "lab:implement-issue" / "fe-review:reviewer"）
+export type SlashCommandInfo = {
+  name: string
+  description: string
+  kind: 'command' | 'skill'
+  source: 'user' | 'project' | 'plugin'
+  argumentHint?: string  // frontmatter の argument-hint
+}
+
 // GitHub トークン（fine-grained personal access token）
 // scope は "owner" または "owner/repo"。トークンは owner/repo → owner の順に引き、
 // どちらにも該当しない場合は全owner共通の githubPat にフォールバックする。
@@ -125,6 +135,17 @@ export type GitStatusResult = {
 }
 
 // Dev server status
+export type DevServerExitInfo = {
+  code: number | null
+  signal: string | null
+  /** 終了時刻（ISO8601） */
+  at: string
+  /** manual = stop() 経由の意図的な停止 / abnormal = それ以外（クラッシュ・spawn失敗） */
+  reason: 'manual' | 'abnormal'
+  /** spawn 失敗などのエラーメッセージ */
+  message?: string
+}
+
 export type DevServerStatus = {
   repoId: string
   paneId: string
@@ -132,6 +153,8 @@ export type DevServerStatus = {
   running: boolean
   pid?: number
   url?: string  // resolveDevServerUrl で解決済みのURL
+  /** 直近の終了情報。一度も終了していなければ undefined */
+  lastExit?: DevServerExitInfo
 }
 
 // Terminal data event
@@ -175,6 +198,7 @@ export type IpcChannels = {
   'claude:start': [{ taskId: string; workdir: string; prompt?: string; cols?: number; rows?: number; launchMode?: LaunchMode; model?: ClaudeModel }, void]
   'claude:resume': [{ taskId: string; cols?: number; rows?: number; launchMode?: LaunchMode; model?: ClaudeModel }, void]
   'claude:list-models': [void, string[]]
+  'claude:list-commands': [string | undefined, SlashCommandInfo[]]
 
   // Dev Server
   'devserver:start': [{ repoId: string; paneId: string; label: string }, void]
@@ -274,6 +298,7 @@ export type WindowApi = {
     start: (taskId: string, workdir: string, prompt?: string, cols?: number, rows?: number, launchMode?: LaunchMode, model?: ClaudeModel) => Promise<void>
     resume: (taskId: string, cols?: number, rows?: number, launchMode?: LaunchMode, model?: ClaudeModel) => Promise<void>
     listModels: () => Promise<string[]>
+    listCommands: (workdir?: string) => Promise<SlashCommandInfo[]>
     onContextUpdate: (callback: (info: ContextInfo) => void) => () => void
   }
   devserver: {

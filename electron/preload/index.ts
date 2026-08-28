@@ -10,6 +10,7 @@ import type {
   ClaudeModel,
   RotationStatus,
   ResidentOrchestratorRunResult,
+  SlashCommandInfo,
   NavigationPayload,
   GitHubTokenVerifyResult
 } from '../../src/types/ipc'
@@ -75,6 +76,8 @@ const api = {
     resume: (taskId: string, cols?: number, rows?: number, launchMode?: LaunchMode, model?: ClaudeModel): Promise<void> =>
       ipcRenderer.invoke('claude:resume', { taskId, cols, rows, launchMode, model }),
     listModels: (): Promise<string[]> => ipcRenderer.invoke('claude:list-models'),
+    listCommands: (workdir?: string): Promise<SlashCommandInfo[]> =>
+      ipcRenderer.invoke('claude:list-commands', workdir),
     onContextUpdate: (callback: (info: ContextInfo) => void): (() => void) => {
       const listener = (_: IpcRendererEvent, info: ContextInfo): void => callback(info)
       ipcRenderer.on('claude:context-update', listener)

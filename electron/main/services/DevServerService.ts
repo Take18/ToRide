@@ -1,8 +1,17 @@
 import { spawn, type ChildProcess } from 'child_process'
 import { existsSync } from 'fs'
-import type { DevServerConfig, PaneConfig, DevServerStatus } from '../../../src/types/ipc'
+import type { DevServerConfig, PaneConfig, DevServerStatus, DevServerExitInfo } from '../../../src/types/ipc'
 import { expandPath } from '../utils/path'
 import { resolveDevServerUrl } from '../../../src/utils/devServerUrl'
+
+/**
+ * 1サーバーあたりのログ保持上限（String.length 基準＝UTF-16コードユニット数。
+ * 日本語ログでは実メモリはこれより大きくなる）。超えたら KEEP_LOG_CHARS まで古い側を捨てる。
+ * 毎チャンク切り詰めると保持分まるごとのコピーが走るため、切り落とし先を別に設けて頻度を落としている。
+ */
+const MAX_LOG_CHARS = 2 * 1024 * 1024
+const KEEP_LOG_CHARS = 1.5 * 1024 * 1024
+const TRUNCATED_MARK = '[... 古いログは省略されました ...]\n'
 
 export type DevServerChangeCallback = (statuses: DevServerStatus[]) => void
 export type AbnormalExitCallback = (info: { repoId: string; paneId: string; label: string }) => void
@@ -12,6 +21,7 @@ export class DevServerService {
   private logs: Map<string, string> = new Map()
   private configs: Map<string, { repoId: string; paneConfig: PaneConfig; serverConfig: DevServerConfig }> =
     new Map()
+  private lastExits: Map<string, DevServerExitInfo> = new Map()
   private changeCallbacks: Set<DevServerChangeCallback> = new Set()
   private stoppingKeys: Set<string> = new Set()
   private abnormalExitCallback?: AbnormalExitCallback
@@ -30,9 +40,12 @@ export class DevServerService {
     const resolvedPath = expandPath(paneConfig.path)
     this.configs.set(k, { repoId, paneConfig, serverConfig })
     this.logs.set(k, '')
+    this.lastExits.delete(k)
 
     if (!existsSync(resolvedPath)) {
-      this.logs.set(k, `[error] ディレクトリが存在しません: ${resolvedPath}\n設定画面でpaneのパスを確認してください。\n`)
+      const message = `ディレクトリが存在しません: ${resolvedPath}`
+      this.logs.set(k, `[error] ${message}\n設定画面でpaneのパスを確認してください。\n`)
+      this.recordExit(k, { code: null, signal: null, at: new Date().toISOString(), reason: 'abnormal', message })
       this.notifyChange()
       return
     }
@@ -59,28 +72,37 @@ export class DevServerService {
     this.processes.set(k, child)
 
     child.stdout?.on('data', (data: Buffer) => {
-      const current = this.logs.get(k) || ''
-      this.logs.set(k, current + data.toString())
+      this.appendLog(k, data.toString())
     })
 
     child.stderr?.on('data', (data: Buffer) => {
-      const current = this.logs.get(k) || ''
-      this.logs.set(k, current + data.toString())
+      this.appendLog(k, data.toString())
     })
 
     child.on('error', (err) => {
-      const current = this.logs.get(k) || ''
-      this.logs.set(k, current + `[error] ${err.message}\n`)
+      this.appendLog(k, `[error] ${err.message}\n`)
       this.processes.delete(k)
+      this.recordExit(k, {
+        code: null,
+        signal: null,
+        at: new Date().toISOString(),
+        reason: this.stoppingKeys.has(k) ? 'manual' : 'abnormal',
+        message: err.message
+      })
       this.notifyChange()
     })
 
     child.on('exit', (code, signal) => {
-      const current = this.logs.get(k) || ''
-      this.logs.set(k, current + `\n[exited: code=${code} signal=${signal}]\n`)
+      this.appendLog(k, `\n[exited: code=${code} signal=${signal}]\n`)
       const intentional = this.stoppingKeys.has(k)
       this.stoppingKeys.delete(k)
       this.processes.delete(k)
+      this.recordExit(k, {
+        code,
+        signal,
+        at: new Date().toISOString(),
+        reason: intentional ? 'manual' : 'abnormal'
+      })
       this.notifyChange()
       if (!intentional && code !== 0) {
         const cfg = this.configs.get(k)
@@ -133,7 +155,8 @@ export class DevServerService {
         label: config.serverConfig.label,
         running: !!child,
         pid: child?.pid,
-        url: resolveDevServerUrl(config.serverConfig.url)
+        url: resolveDevServerUrl(config.serverConfig.url),
+        lastExit: this.lastExits.get(k)
       })
     }
 
@@ -142,6 +165,27 @@ export class DevServerService {
 
   getLog(repoId: string, paneId: string, label: string): string {
     return this.logs.get(this.key(repoId, paneId, label)) || ''
+  }
+
+  /** 直近の終了情報。起動したことがない／まだ終了していない場合は undefined */
+  getLastExit(repoId: string, paneId: string, label: string): DevServerExitInfo | undefined {
+    return this.lastExits.get(this.key(repoId, paneId, label))
+  }
+
+  private recordExit(key: string, info: DevServerExitInfo): void {
+    this.lastExits.set(key, info)
+  }
+
+  /** ログを追記する。上限を超えたら古い側を行頭で切り落とす */
+  private appendLog(key: string, chunk: string): void {
+    const next = (this.logs.get(key) || '') + chunk
+    if (next.length <= MAX_LOG_CHARS) {
+      this.logs.set(key, next)
+      return
+    }
+    const kept = next.slice(next.length - KEEP_LOG_CHARS)
+    const nl = kept.indexOf('\n')
+    this.logs.set(key, TRUNCATED_MARK + (nl >= 0 ? kept.slice(nl + 1) : kept))
   }
 
   onStatusChange(callback: DevServerChangeCallback): () => void {

@@ -5,7 +5,7 @@ import type { LocalHttpServer } from './LocalHttpServer.js'
 import type { TaskService } from './TaskService.js'
 import type { DevServerService } from './DevServerService.js'
 import type { Task } from '../../../src/types/task.js'
-import type { AppSettings, ClaudeModel, LaunchMode } from '../../../src/types/ipc.js'
+import type { AppSettings, ClaudeModel, DevServerExitInfo, LaunchMode } from '../../../src/types/ipc.js'
 import { resolveDevServerUrl } from '../../../src/utils/devServerUrl.js'
 
 export type NotifyLevel = 'info' | 'question' | 'warning'
@@ -20,6 +20,30 @@ export type McpUserNotification = {
 }
 
 const NOTIFY_LEVELS: NotifyLevel[] = ['info', 'question', 'warning']
+
+/** get_dev_server_log の既定行数と上限。MCPレスポンスがコンテキストを食い潰さないよう抑える */
+const DEFAULT_LOG_LINES = 100
+const MAX_LOG_LINES = 1000
+
+/** ログを（必要なら grep で絞ってから）末尾 lines 行に切り詰める */
+const tailLog = (
+  log: string,
+  lines: number,
+  grep?: string
+): { shown: string[]; total: number; matched: number } => {
+  const all = log === '' ? [] : log.replace(/\n$/, '').split('\n')
+  const needle = grep?.toLowerCase()
+  const filtered = needle ? all.filter((l) => l.toLowerCase().includes(needle)) : all
+  return { shown: filtered.slice(-lines), total: all.length, matched: filtered.length }
+}
+
+/** DevServerExitInfo を1行のサマリにする */
+const formatExit = (exit?: DevServerExitInfo): string => {
+  if (!exit) return 'なし（未終了 or 未起動）'
+  const parts = [`code=${exit.code}`, `signal=${exit.signal}`, `reason=${exit.reason}`, `at=${exit.at}`]
+  if (exit.message) parts.push(`message=${exit.message}`)
+  return parts.join(' ')
+}
 
 /** タイトル文字列から対象タスクを引く。doing のタスクを優先し、完全一致 → 部分一致で探す */
 const findTaskByTitle = (tasks: Task[], title: string): Task | undefined => {
@@ -241,6 +265,31 @@ export class McpServerService {
             },
           },
           {
+            name: 'get_dev_server_log',
+            description:
+              '開発サーバーの標準出力・標準エラーのログを取得する。サーバーが落ちた・起動しない・リクエストが失敗するといったときに原因を調べるために使う。' +
+              '停止後もログは残るため、異常終了（list_dev_servers の lastExit.reason が abnormal）したサーバーの原因調査にも使える。' +
+              `既定では末尾 ${DEFAULT_LOG_LINES} 行を返す（最大 ${MAX_LOG_LINES} 行）。repoId / paneId / label は list_dev_servers で確認すること。`,
+            inputSchema: {
+              type: 'object' as const,
+              properties: {
+                repoId: { type: 'string', description: 'リポジトリID（list_dev_servers で確認可能）' },
+                paneId: { type: 'string', description: 'ペインID' },
+                label: { type: 'string', description: '開発サーバーのラベル' },
+                lines: {
+                  type: 'number',
+                  description: `末尾から取得する行数（既定 ${DEFAULT_LOG_LINES} / 最大 ${MAX_LOG_LINES}）`,
+                },
+                grep: {
+                  type: 'string',
+                  description:
+                    '指定するとこの文字列を含む行だけに絞り込む（大文字小文字を区別しない）。絞り込んだ結果の末尾 lines 行を返す',
+                },
+              },
+              required: ['repoId', 'paneId', 'label'],
+            },
+          },
+          {
             name: 'stop_dev_server',
             description: '起動中の開発サーバーを停止する',
             inputSchema: {
@@ -353,6 +402,12 @@ export class McpServerService {
                       url: resolveDevServerUrl(server.url) ?? null,
                       running: status?.running ?? false,
                       pid: status?.pid,
+                      // 落ちたことに気づけるよう直近の終了情報を返す。詳細は get_dev_server_log で追う
+                      lastExitCode: status?.lastExit?.code ?? null,
+                      lastExitSignal: status?.lastExit?.signal ?? null,
+                      lastExitedAt: status?.lastExit?.at ?? null,
+                      lastExitReason: status?.lastExit?.reason ?? null,
+                      lastExitMessage: status?.lastExit?.message ?? null,
                     }
                   })
                 })
@@ -405,6 +460,53 @@ export class McpServerService {
                 taskId: task?.id,
               })
               return { content: [{ type: 'text' as const, text: 'notified' }] }
+            }
+            case 'get_dev_server_log': {
+              const { repoId, paneId, label, lines, grep } = args as {
+                repoId: string
+                paneId: string
+                label: string
+                lines?: number
+                grep?: string
+              }
+              const repo = getSettings().repos.find((r) => r.id === repoId)
+              if (!repo) {
+                throw new Error(`Repo not found: ${repoId}. Use list_dev_servers to get valid IDs.`)
+              }
+              const paneConfig = repo.panes.find((p) => p.id === paneId)
+              if (!paneConfig) {
+                throw new Error(`Pane not found: ${paneId} in repo ${repoId}`)
+              }
+              if (!paneConfig.devServers.some((s) => s.label === label)) {
+                throw new Error(`Dev server not found: ${label} in pane ${paneId}`)
+              }
+
+              const limit = Math.min(
+                Math.max(Math.floor(Number(lines) || DEFAULT_LOG_LINES), 1),
+                MAX_LOG_LINES
+              )
+              const keyword = typeof grep === 'string' && grep.trim() ? grep.trim() : undefined
+              const log = devServerService.getLog(repoId, paneId, label)
+              const { shown, total, matched } = tailLog(log, limit, keyword)
+              const status = devServerService
+                .status()
+                .find((s) => s.repoId === repoId && s.paneId === paneId && s.label === label)
+
+              const header = [
+                `server: ${repoId}:${paneId}:${label}`,
+                `running: ${status?.running ?? false}${status?.pid ? ` (pid=${status.pid})` : ''}`,
+                `lastExit: ${formatExit(status?.lastExit)}`,
+                keyword
+                  ? `log: 全${total}行中 "${keyword}" にマッチ${matched}行 / 末尾${shown.length}行を表示`
+                  : `log: 全${total}行 / 末尾${shown.length}行を表示`,
+              ].join('\n')
+
+              const body = shown.length
+                ? shown.join('\n')
+                : keyword
+                  ? `("${keyword}" にマッチする行はありません)`
+                  : '(ログなし。まだ起動していない可能性があります)'
+              return { content: [{ type: 'text' as const, text: `${header}\n--- log ---\n${body}` }] }
             }
             case 'stop_dev_server': {
               const { repoId, paneId, label } = args as { repoId: string; paneId: string; label: string }
