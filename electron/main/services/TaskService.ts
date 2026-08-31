@@ -2,11 +2,53 @@ import type Database from 'better-sqlite3'
 import type { Task, RuntimeTask, ArchiveEntry, RuntimeTaskState, RotationRuntime } from '../../../src/types/task'
 import crypto from 'crypto'
 
+export type TaskStatusChange = {
+  taskId: string
+  from: Task['status']
+  to: Task['status']
+}
+
 export class TaskService {
   private db: Database.Database
+  // status を done にする経路は UI / 通知 / MCP と複数あるため、
+  // セッション終了などの副作用はここに集約して取りこぼしを防ぐ
+  private statusChangeListeners: Set<(change: TaskStatusChange) => void> = new Set()
+  private deleteListeners: Set<(taskId: string) => void> = new Set()
 
   constructor(db: Database.Database) {
     this.db = db
+  }
+
+  /** status が変化したときに通知する（変化がないときは呼ばれない） */
+  onStatusChange(cb: (change: TaskStatusChange) => void): () => void {
+    this.statusChangeListeners.add(cb)
+    return () => this.statusChangeListeners.delete(cb)
+  }
+
+  /** タスクが削除されたときに通知する（アーカイブ時も delete 経由で発火する） */
+  onDeleted(cb: (taskId: string) => void): () => void {
+    this.deleteListeners.add(cb)
+    return () => this.deleteListeners.delete(cb)
+  }
+
+  private emitStatusChange(change: TaskStatusChange): void {
+    for (const cb of [...this.statusChangeListeners]) {
+      try {
+        cb(change)
+      } catch (e) {
+        console.error('[TaskService] status change listener failed:', e)
+      }
+    }
+  }
+
+  private emitDeleted(taskId: string): void {
+    for (const cb of [...this.deleteListeners]) {
+      try {
+        cb(taskId)
+      } catch (e) {
+        console.error('[TaskService] delete listener failed:', e)
+      }
+    }
   }
 
   list(): RuntimeTask[] {
@@ -164,11 +206,16 @@ export class TaskService {
         .run(JSON.stringify(merged), id)
     }
 
-    return this.getById(id)!
+    const updated = this.getById(id)!
+    if (status !== undefined && status !== existing.status) {
+      this.emitStatusChange({ taskId: id, from: existing.status, to: status })
+    }
+    return updated
   }
 
   delete(id: string): void {
     this.db.prepare(`DELETE FROM tasks WHERE id = ?`).run(id)
+    this.emitDeleted(id)
   }
 
   archive(id: string): void {

@@ -112,7 +112,7 @@ export default function TerminalPanel() {
       try {
         entry.fitAddon.fit()
         entry.terminal.scrollToBottom()
-        window.api.terminal.resize(activeTaskId, entry.terminal.cols, entry.terminal.rows)
+        window.api.terminal.resize(activeTaskId, entry.terminal.cols, entry.terminal.rows).catch(() => {})
         setPanelDimensions(entry.terminal.cols, entry.terminal.rows)
         entry.terminal.focus()
       } catch {
@@ -122,7 +122,8 @@ export default function TerminalPanel() {
 
     // キー入力 → pty
     const disposable = entry.terminal.onData((data) => {
-      window.api.terminal.write(activeTaskId, data)
+      // 完了時などセッションが既に終了していることがあるので、失敗は握り潰す
+      window.api.terminal.write(activeTaskId, data).catch(() => {})
     })
 
     return () => {
@@ -140,7 +141,7 @@ export default function TerminalPanel() {
         entry.fitAddon.fit()
         entry.terminal.refresh(0, entry.terminal.rows - 1)
         entry.terminal.scrollToBottom()
-        window.api.terminal.resize(activeTaskId, entry.terminal.cols, entry.terminal.rows)
+        window.api.terminal.resize(activeTaskId, entry.terminal.cols, entry.terminal.rows).catch(() => {})
       } catch {
         // ignore
       }
@@ -179,7 +180,7 @@ export default function TerminalPanel() {
         if (entry) {
           try {
             entry.fitAddon.fit()
-            window.api.terminal.resize(activeTaskId, entry.terminal.cols, entry.terminal.rows)
+            window.api.terminal.resize(activeTaskId, entry.terminal.cols, entry.terminal.rows).catch(() => {})
             useTerminalStore.getState().setPanelDimensions(entry.terminal.cols, entry.terminal.rows)
           } catch {
             // ignore
@@ -231,7 +232,7 @@ export default function TerminalPanel() {
           entry.fitAddon.fit()
           entry.terminal.refresh(0, entry.terminal.rows - 1)
           entry.terminal.scrollToBottom()
-          window.api.terminal.resize(tid, entry.terminal.cols, entry.terminal.rows)
+          window.api.terminal.resize(tid, entry.terminal.cols, entry.terminal.rows).catch(() => {})
         } catch {
           // ignore
         }
@@ -334,7 +335,7 @@ export default function TerminalPanel() {
           const files = Array.from(e.dataTransfer.files)
           const paths = files.map((f) => (f as File & { path: string }).path).filter(Boolean)
           if (paths.length > 0) {
-            window.api.terminal.write(activeTaskId, paths.join(' '))
+            window.api.terminal.write(activeTaskId, paths.join(' ')).catch(() => {})
           }
         }}
       />
