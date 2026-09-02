@@ -342,6 +342,22 @@ app.whenReady().then(() => {
   // 閾値判定はコンテキスト更新に相乗りする（Status Line Hook 経由が主系）
   claudeService.onContextUpdate((info) => rotationService?.onContextUpdate(info))
 
+  // タスクが done になったら Claude セッションを確実に終了させる。
+  // 完了経路は UI の完了ボタン / 通知の「承認して完了」/ MCP の update_task と複数あるため、
+  // TaskService の status 変化に1本だけフックして取りこぼしを防ぐ。
+  // 落とさないと claude とそのバックグラウンドジョブが走り続け、完了後も通知を出してくる
+  const endTaskSession = (taskId: string) => {
+    stopHookService.removeTaskCallback(taskId)
+    rotationService?.clear(taskId)
+    claudeService.resetContextTracking(taskId)
+    terminalService.kill(taskId)
+  }
+  taskService.onStatusChange(({ taskId, to }) => {
+    if (to === 'done') endTaskSession(taskId)
+  })
+  // 実行中のまま削除／アーカイブされた場合もセッションが孤児になる
+  taskService.onDeleted((taskId) => endTaskSession(taskId))
+
   const NOTIFY_LEVEL_LABEL: Record<McpUserNotification['level'], string> = {
     info: 'お知らせ',
     question: '入力待ち',

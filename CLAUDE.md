@@ -125,7 +125,9 @@ src/
   - 起動時にシステムプロンプト（`orchestrateSystemPrompt` 設定、デフォルトあり）+ メモリディレクトリ + ミッション説明を結合して注入
   - プロンプトはテンプレート変数展開の対象外
 - **ペイン競合検出**: 同一ペインに実行中タスクがあれば警告モーダル（強制起動も可）
-- **タスク完了**: 完了ボタンでステータス変更 + ターミナルセッション自動クローズ
+- **タスク完了時のセッション終了**: status が `done` になったら Claude セッションを終了する
+  - 完了ボタン / 通知の「承認して完了」/ MCP の `update_task` / 実行中タスクの削除・アーカイブ、いずれの経路でも終了する
+  - claude だけでなく PTY 配下の子孫プロセス（バックグラウンドジョブ等）もまとめて停止する
 - **再起動時自動リセット**: 起動時にdoingタスクをwill_doに戻し、task_runtimeをクリア
 - **セッション再開**: 完了タスクカードの「再開」ボタンで `claude --resume <uuid>` による前セッション継続
   - タスク起動時にUUIDを生成し `--session-id` フラグでClaudeに渡して保存
@@ -314,6 +316,8 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **リポジトリ名の解決**: `utils/repoMap.ts` の `listRepoFullNames()` が基点。`buildRepoFullNameMap()`（repoId解決）と `github:repo-owners`（owner一覧）が共用する
 - **設定エクスポート**: `githubPat` / `githubTokens` は除外
 - **PTY管理**: `Map<taskId, IPty>` でセッションをライフサイクル全体で維持
+- **セッション終了は子孫プロセスまで**: `pty.kill()` はログインシェルにしかシグナルが届かず、claude が起動したバックグラウンドジョブが生き残って完了後も通知を出してくる。`TerminalService.kill()` は kill 前に `ps -eo pid=,ppid=` で子孫PIDを洗い出し（親を先に殺すと reparent されて辿れなくなる）、SIGTERM → 3秒後に生存分へ SIGKILL する。アプリ終了時の `killAll()` は setTimeout が発火しないので猶予なしの SIGKILL
+- **完了時のセッション終了フックは `TaskService` に集約**: done にする経路が UI / 通知 / MCP と複数あるため、`TaskService.onStatusChange` / `onDeleted` を index.ts で1本だけ購読して `stopHook.removeTaskCallback` → `rotation.clear` → `resetContextTracking` → `terminal.kill` を実行する。各呼び出し元に散らすと必ず取りこぼす
 - **コンテキスト解析**: Status Line Hook 経由が主系、stdout/stderrパースはフォールバック。`used_percentage` ベースで計算し、セッション最大値を追跡して逆行防止
 - **bg://プロトコル**: `protocol.registerSchemesAsPrivileged` で`app.whenReady`より前に登録必要
 - **再起動時クリーンアップ**: 起動直後にdoing→will_do変換 + task_runtimeテーブル全削除
