@@ -160,6 +160,8 @@ src/
 - **Status Line Hook**: `~/.claude/statusline.sh` で各APIレスポンス後にコンテキスト使用量をリアルタイム更新（設定画面からインストール）
 - **MCP サーバー**: `create_task` / `list_tasks` / `list_repos` / `update_task` / `delete_task` / `start_task` / `list_dev_servers` / `start_dev_server` / `stop_dev_server` / `get_dev_server_log` / `notify_user` / `get_rotation_status` ツールを公開（設定画面からインストール、`~/.claude/settings.json` に自動登録）
   - `start_task` は `launchMode` パラメータで起動モードを指定可能
+  - `update_task` は `title` / `status` / `prompt` / `depends_on` / `rotation` を部分更新できる
+  - `create_task` / `list_tasks` / `update_task` / `start_task` のレスポンスは要約のみ（`summarizeTask()`）。`list_tasks` は `id` で1件に絞れ、プロンプト本文は `include_prompt: true` のときだけ含まれる
   - `list_dev_servers` は workdir・実行中タスク情報に加えて直近の終了情報（`lastExitCode` / `lastExitSignal` / `lastExitedAt` / `lastExitReason` / `lastExitMessage`）を含めて返却
   - `get_dev_server_log` は開発サーバーの stdout/stderr を返す（既定は末尾100行・最大1000行、`grep` で行フィルタ可）。停止後もログは残るため異常終了の原因調査に使える
   - `notify_user` はタスク内のClaudeセッションが任意のタイミングでデスクトップ通知を送るツール（`message` 必須 / `level`: info・question・warning / `title` / `taskTitle` / `taskId`）。`taskTitle` からタスクを逆引きし、通知クリックで該当タスクへジャンプする
@@ -331,6 +333,7 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **PR URL検出**: ターミナル出力スキャンではなくStatus Line Hookのペイロードから検出
 - **開発サーバーの終了情報**: `DevServerService` が `lastExits: Map<key, DevServerExitInfo>` で直近の終了（code / signal / 時刻 / manual・abnormal / spawn失敗メッセージ）を保持し、`status()` に載せて返す。`start()` 時にクリアするので「今の起動で落ちたか」だけが残る
 - **開発サーバーログの保持上限**: `DevServerService` はログを約200万文字（`String.length` 基準＝UTF-16コードユニット数。日本語ログでは実メモリはこれより大きい）まで保持し、超えたら約150万文字まで古い側を行頭で切り落として `[... 古いログは省略されました ...]` を先頭に置く。毎チャンク切り詰めると保持分まるごとのコピーが走るため、切り落とし先を別に設けて頻度を落としている
+- **MCPのタスクレスポンスは要約に固定**: `RuntimeTask` をそのまま返すと `prompt` 全文・`images`・`rotation.history`（ローテーションのたびに積まれる）・`sessionId` が毎回乗り、status を1つ変えるだけの `update_task` でもコンテキストを大きく食う。`summarizeTask()` で「どのタスクか」と「今どうなっているか」に要るフィールドだけに絞り、`contextUsed`/`contextLimit` は `contextPercent` 1つに畳み、`JSON.stringify` のインデントも付けない。`list_tasks` からプロンプト本文を落とした代わりに `id` 絞り込みと `include_prompt` を用意して、必要なときだけ1件分取れるようにしている
 - **開発サーバーログの返却量**: MCPレスポンスがコンテキストを食い潰さないよう `get_dev_server_log` は既定100行・最大1000行に切り詰める。`grep` は先に行フィルタしてから末尾N行を取る
 - **notify_userのタスク解決**: セッションが自分のタスクIDを知らなくても通知できるよう、`taskTitle` からdoingタスク優先で完全一致→部分一致で逆引きする。解決できなければ通知は出しクリック時はウィンドウフォーカスのみ
 - **モデル一覧**: `/v1/models` から動的取得し、失敗時は opus/sonnet/haiku にフォールバック（ModelListService）
