@@ -1,14 +1,12 @@
-import { Notification, type BrowserWindow } from 'electron'
 import type { TerminalService } from './TerminalService'
 import type { ContextLineService } from './ContextLineService'
-import type { AppSettings, ClaudeModel, ContextInfo, LaunchMode } from '../../../src/types/ipc'
+import type { ClaudeModel, ContextInfo, LaunchMode } from '../../../src/types/ipc'
+import type { NotifyInput } from './NotificationService'
 
 export type ContextUpdateCallback = (info: ContextInfo) => void
 
 export class ClaudeService {
   private terminalService: TerminalService
-  private getSettings: () => Pick<AppSettings, 'notificationsEnabled'>
-  private getWindow?: () => BrowserWindow | null
   private contextCallbacks: Set<ContextUpdateCallback> = new Set()
   private notifiedThresholds: Map<string, Set<number>> = new Map()
   // 正規表現パス用: デルタ値 (↓ 8.6k tokens) の累積に使用
@@ -21,18 +19,17 @@ export class ClaudeService {
   // 始まった直後に「80%注意」が飛ぶ二重通知を避けるため）。
   // 抑制しても保留・停止・中止の通知は SessionRotationService 側から必ず出る
   private isRotationEnabled?: (taskId: string) => boolean
+  private notify?: (input: NotifyInput) => void
 
   constructor(
     terminalService: TerminalService,
-    getSettings: () => Pick<AppSettings, 'notificationsEnabled'>,
     contextLineService?: ContextLineService,
-    getWindow?: () => BrowserWindow | null,
-    isRotationEnabled?: (taskId: string) => boolean
+    isRotationEnabled?: (taskId: string) => boolean,
+    notify?: (input: NotifyInput) => void
   ) {
     this.terminalService = terminalService
-    this.getSettings = getSettings
-    this.getWindow = getWindow
     this.isRotationEnabled = isRotationEnabled
+    this.notify = notify
     contextLineService?.onContextUpdate((info) => {
       this.fireContextUpdate(info)
     })
@@ -187,37 +184,28 @@ export class ClaudeService {
     const thresholds = this.notifiedThresholds.get(info.taskId)
     if (!thresholds) return
 
-    const { notificationsEnabled = true } = this.getSettings()
-    if (!notificationsEnabled) return
     // rotation 有効タスクは SessionRotationService が通知を持つので二重に出さない
     if (this.isRotationEnabled?.(info.taskId)) return
 
+    const usage = `${info.used.toLocaleString()} / ${info.limit.toLocaleString()}`
     if (ratio >= 0.9 && !thresholds.has(90)) {
       thresholds.add(90)
-      const n90 = new Notification({
+      this.notify?.({
+        category: 'context',
+        level: 'warning',
         title: 'コンテキスト警告',
-        body: `タスクのコンテキスト使用量が90%を超えました (${info.used.toLocaleString()} / ${info.limit.toLocaleString()})`
+        body: `タスクのコンテキスト使用量が90%を超えました (${usage})`,
+        navigation: { type: 'task', taskId: info.taskId },
       })
-      n90.on('click', () => {
-        const win = this.getWindow?.()
-        win?.show()
-        win?.focus()
-        win?.webContents.send('navigation:goto', { type: 'task', taskId: info.taskId })
-      })
-      n90.show()
     } else if (ratio >= 0.8 && !thresholds.has(80)) {
       thresholds.add(80)
-      const n80 = new Notification({
+      this.notify?.({
+        category: 'context',
+        level: 'info',
         title: 'コンテキスト注意',
-        body: `タスクのコンテキスト使用量が80%を超えました (${info.used.toLocaleString()} / ${info.limit.toLocaleString()})`
+        body: `タスクのコンテキスト使用量が80%を超えました (${usage})`,
+        navigation: { type: 'task', taskId: info.taskId },
       })
-      n80.on('click', () => {
-        const win = this.getWindow?.()
-        win?.show()
-        win?.focus()
-        win?.webContents.send('navigation:goto', { type: 'task', taskId: info.taskId })
-      })
-      n80.show()
     }
   }
 }

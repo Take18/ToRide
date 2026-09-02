@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useTaskStore } from '../../stores/taskStore'
+import NotificationBell from '../NotificationBell/NotificationBell'
 import type { TaskType } from '../../types/task'
 
 const TASK_TYPES: { value: TaskType; label: string; color: string }[] = [
@@ -120,6 +121,7 @@ export default function FilterBar({
           </button>
         </div>
       )}
+      <NotificationBell />
       <button
         onClick={() => navigate('/archive')}
         className="px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-sm text-gray-300"
