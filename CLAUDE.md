@@ -45,6 +45,7 @@ electron/
       ContextLineService.ts # Status Line Hook管理・/context-updateエンドポイント
       SessionRotationService.ts # セッションローテーション（閾値検知・handoff完了検知・再起動）
       McpServerService.ts # MCPサーバー（タスクCRUD・タスク起動・開発サーバー制御ツールを公開）
+      NotificationService.ts # デスクトップ通知の発行と通知履歴の保存
       ModelListService.ts # /v1/models からのモデル一覧取得
       SlashCommandService.ts # スラッシュコマンド・スキルの列挙（補完候補）
       McpHookService.ts   # ~/.claude/settings.json のmcpServers自動管理
@@ -54,7 +55,7 @@ electron/
       catalog.ts          # プラグイン一覧（Wrike・GitHub Issue）
       ticket/             # チケットプラグイン（WrikeTicketPlugin・GitHubIssueTicketPlugin）
     ipc/
-      tasks.ts / terminal.ts / git.ts / claude.ts / devServer.ts / github.ts
+      tasks.ts / terminal.ts / git.ts / claude.ts / devServer.ts / github.ts / notifications.ts
     utils/path.ts         # パスユーティリティ
   preload/index.ts        # contextBridge でwindow.api公開
 src/
@@ -71,6 +72,7 @@ src/
     Common/               # ConfirmDialog, ConflictWarningModal, BranchCombobox
     ContextMeter/         # コンテキスト使用量プログレスバー
     FilterBar/            # 検索・タイプフィルタ・新規タスクボタン
+    NotificationBell/     # 通知履歴のベルアイコン・一覧パネル
     PaneStatusSidebar/    # ペイン状態・開発サーバー起動停止
     TaskCard/             # タスクカード (PRStatusBadge含む)
     TaskForm/             # タスク作成・編集モーダル
@@ -182,6 +184,17 @@ src/
 - **デスクトップ通知**: 80%到達時 / 90%到達時 / タスク完了時（通知クリックで関連画面へジャンプ）
 - **リアルタイム更新**: Status Line Hook 経由で各APIレスポンス後に即時反映（stdout パースはフォールバック）
   - used_percentageベースで計算、セッション最大値を追跡して逆行防止
+
+### 通知センター
+
+デスクトップ通知は出た瞬間を逃すと二度と見られないため、FilterBar のベルアイコンから履歴を追えるようにしている。
+
+- **一覧**: ベルをクリックするとパネルを開き、新しい順に表示（カテゴリ・レベル・相対時刻つき）。未読はバッジで件数を表示
+- **既読**: 項目ごとの「既読」ボタンと「すべて既読」ボタン。項目本体をクリックすると既読にしたうえで通知クリックと同じ遷移をする
+- **記録対象**: `context`（80%/90%警告）/ `rotation`（保留・停止・中止）/ `devserver`（異常終了）/ `mcp`（`notify_user`）
+- **記録しないもの**: Stop Hook 由来のタスク完了通知、GitHub PR同期・トークンエラー、手動完了時の完了通知
+- **通知OFF時**: `notificationsEnabled = false` でもデスクトップ通知を出さないだけで履歴には残る
+- **保持**: SQLite の `notifications` テーブルに最大200件。超えた分は古い側から削除
 
 ### セッションローテーション
 
@@ -345,4 +358,7 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **ローテーションのバッファ**: `ClaudeService.cleanBuffers` は `resetContextTracking()` でクリアされるため流用せず、`SessionRotationService` が `terminalService.onData` に自前リスナを持つ
 - **rotation設定の保存先**: `BaseTask.rotation` は `data` JSON カラム。ランタイム状態（保留・baseline等）は `task_runtime.rotation_state` にJSONで保存（再起動でクリア）
 - **residentOrchestrator は永続状態を持たない**: 人がボタンを押したときだけ動くので、日付スタンプでの打ち切りは不要（判断はタスク一覧だけで完結する）
+- **通知履歴は Stop Hook 由来を積まない**: タスク完了は必ずタスクカードに残るので履歴に入れると同じ情報が二重になる。一覧に残すのは「見逃すと困る通知」（コンテキスト警告・ローテーションの異常・Devサーバー異常終了・MCPからの呼びかけ）に絞る
+- **通知の発行は `NotificationService.notify()` に集約**: 履歴の記録とデスクトップ通知の生成を1か所にまとめ、クリック時の遷移先（`NavigationPayload`）も同じレコードから復元する。`ClaudeService` / `SessionRotationService` には service ではなく `notify` 関数だけ渡して、DBへの依存を持ち込まない
+- **通知クリック時の遷移は `src/utils/navigateToTarget.ts` に共通化**: デスクトップ通知（main → `navigation:goto`）と通知一覧パネルの両方から同じ挙動を再現する必要があるため、App.tsx のハンドラから切り出した
 - **`task_runtime` の upsert**: 起動時に `DELETE FROM task_runtime` するため既存タスクの行が消える。`TaskService.update()` は runtime 更新前に `INSERT OR IGNORE` で行を作る（無いと pid / contextUsed 等の UPDATE が全て空振りする）

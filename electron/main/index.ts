@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain, safeStorage, protocol, dialog, powerMonitor, Notification } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, safeStorage, protocol, dialog, powerMonitor } from 'electron'
 import { join, extname } from 'path'
 import { readdirSync, readFileSync, writeFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -29,6 +29,8 @@ import { registerClaudeHandlers, createStartTaskFn } from './ipc/claude'
 import { registerDevServerHandlers } from './ipc/devServer'
 import { registerGitHubHandlers, syncReviewPRs } from './ipc/github'
 import { registerTicketHandlers } from './ipc/ticket'
+import { registerNotificationHandlers } from './ipc/notifications'
+import { NotificationService } from './services/NotificationService'
 import type { AppSettings } from '../../src/types/ipc'
 
 // GUIアプリとして起動した場合のベースラインPATH拡張（シェルプロファイルが読まれないため）
@@ -272,6 +274,11 @@ app.whenReady().then(() => {
   }
 
   // Initialize services
+  const notificationService = new NotificationService({
+    db,
+    getWindow,
+    isDesktopEnabled: () => getSettings().notificationsEnabled ?? true,
+  })
   const taskService = new TaskService(db)
   const terminalService = new TerminalService()
   terminalServiceInstance = terminalService
@@ -279,18 +286,13 @@ app.whenReady().then(() => {
   const devServerService = new DevServerService()
   devServerServiceInstance = devServerService
   devServerService.onAbnormalExit(({ repoId, paneId, label }) => {
-    if (!getSettings().notificationsEnabled) return
-    const notification = new Notification({
+    notificationService.notify({
+      category: 'devserver',
+      level: 'error',
       title: 'Dev Server 異常終了',
-      body: `「${label}」が予期せず終了しました`
+      body: `「${label}」が予期せず終了しました`,
+      navigation: { type: 'devserver', repoId, paneId, label },
     })
-    notification.on('click', () => {
-      const win = getWindow()
-      win?.show()
-      win?.focus()
-      win?.webContents.send('navigation:goto', { type: 'devserver', repoId, paneId, label })
-    })
-    notification.show()
   })
   const gitHubService = new GitHubService()
   const dismissedPrService = new DismissedPrService(db)
@@ -304,10 +306,9 @@ app.whenReady().then(() => {
   let rotationService: SessionRotationService | null = null
   const claudeService = new ClaudeService(
     terminalService,
-    getSettings,
     contextLineService,
-    getWindow,
-    (taskId) => rotationService?.isRotationEnabled(taskId) ?? false
+    (taskId) => rotationService?.isRotationEnabled(taskId) ?? false,
+    (input) => notificationService.notify(input)
   )
   contextLineService.onPrDetected(({ taskId, prUrl }) => {
     try {
@@ -338,6 +339,7 @@ app.whenReady().then(() => {
     getSettings,
     getWindow,
     startTask: startTaskFn,
+    notify: (input) => notificationService.notify(input),
   })
   // 閾値判定はコンテキスト更新に相乗りする（Status Line Hook 経由が主系）
   claudeService.onContextUpdate((info) => rotationService?.onContextUpdate(info))
@@ -364,21 +366,15 @@ app.whenReady().then(() => {
     warning: '注意',
   }
   const notifyUserFromMcp = ({ level, message, title, taskId }: McpUserNotification) => {
-    const { notificationsEnabled = true } = getSettings()
-    if (!notificationsEnabled) return
     const label = NOTIFY_LEVEL_LABEL[level]
-    const notification = new Notification({
+    notificationService.notify({
+      category: 'mcp',
+      level: level === 'warning' ? 'warning' : 'info',
       title: title ? `[${label}] ${title}` : `[${label}]`,
       body: message,
+      navigation: taskId ? { type: 'task', taskId } : null,
       urgency: level === 'warning' ? 'critical' : 'normal',
     })
-    notification.on('click', () => {
-      const win = getWindow()
-      win?.show()
-      win?.focus()
-      if (taskId) win?.webContents.send('navigation:goto', { type: 'task', taskId })
-    })
-    notification.show()
   }
   new McpServerService(localHttpServer, taskService, devServerService, getSettings, () => {
     getWindow()?.webContents.send('tasks:updated')
@@ -390,6 +386,7 @@ app.whenReady().then(() => {
 
   // Register IPC handlers
   registerTaskHandlers(taskService, getSettings, getWindow)
+  registerNotificationHandlers(notificationService)
   registerTerminalHandlers(terminalService, getWindow, stopHookService, rotationService ?? undefined)
   registerGitHandlers(gitService)
   const modelListService = new ModelListService()

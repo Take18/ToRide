@@ -12,6 +12,7 @@ import type {
   ResidentOrchestratorRunResult,
   SlashCommandInfo,
   NavigationPayload,
+  NotificationRecord,
   GitHubTokenVerifyResult
 } from '../../src/types/ipc'
 
@@ -186,6 +187,18 @@ const api = {
       const listener = (): void => callback()
       ipcRenderer.on('system:resume', listener)
       return () => ipcRenderer.removeListener('system:resume', listener)
+    }
+  },
+
+  notifications: {
+    list: (): Promise<NotificationRecord[]> => ipcRenderer.invoke('notifications:list'),
+    markRead: (id: string): Promise<void> => ipcRenderer.invoke('notifications:markRead', id),
+    markAllRead: (): Promise<void> => ipcRenderer.invoke('notifications:markAllRead'),
+    clear: (): Promise<void> => ipcRenderer.invoke('notifications:clear'),
+    onUpdated: (callback: () => void): (() => void) => {
+      const listener = (): void => callback()
+      ipcRenderer.on('notifications:updated', listener)
+      return () => ipcRenderer.removeListener('notifications:updated', listener)
     }
   },
 

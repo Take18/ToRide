@@ -59,6 +59,20 @@ export function initDatabase(): Database.Database {
       url TEXT PRIMARY KEY,
       dismissed_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      category TEXT NOT NULL,
+      level TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      navigation TEXT,
+      created_at TEXT NOT NULL,
+      read_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_notifications_created_at
+      ON notifications(created_at DESC);
   `)
 
   // マイグレーション: task_runtime.rotation_state（RotationRuntime を JSON で保持）

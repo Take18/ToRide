@@ -1,4 +1,4 @@
-import { Notification, type BrowserWindow } from 'electron'
+import type { BrowserWindow } from 'electron'
 import fs from 'fs'
 import type { TaskService } from './TaskService'
 import type { ClaudeService } from './ClaudeService'
@@ -7,6 +7,7 @@ import type { StopHookService } from './StopHookService'
 import type { GitService } from './GitService'
 import type { StartTaskFn } from '../ipc/claude'
 import { expandPath } from '../utils/path'
+import type { NotifyInput } from './NotificationService'
 import type { AppSettings, ClaudeModel, ContextInfo, LaunchMode } from '../../../src/types/ipc'
 import type { RotationConfig, RotationHistoryEntry, RotationHoldReason, RuntimeTask } from '../../../src/types/task'
 
@@ -86,6 +87,8 @@ type Deps = {
   getSettings: () => AppSettings
   getWindow: () => BrowserWindow | null
   startTask: StartTaskFn
+  /** 通知の発行と履歴保存（NotificationService.notify） */
+  notify: (input: NotifyInput) => void
 }
 
 /** 空白・改行をすべて除去して照合用に正規化する（TUI の行折り返しを吸収するため） */
@@ -507,15 +510,14 @@ export class SessionRotationService {
    * 80/90% の通知を抑制している以上、無音が「正常」を意味してしまうのが最も危険なため。
    */
   private notify(taskId: string, title: string, body: string): void {
-    if (!(this.deps.getSettings().notificationsEnabled ?? true)) return
-    const n = new Notification({ title, body, urgency: 'critical' })
-    n.on('click', () => {
-      const win = this.deps.getWindow()
-      win?.show()
-      win?.focus()
-      win?.webContents.send('navigation:goto', { type: 'task', taskId })
+    this.deps.notify({
+      category: 'rotation',
+      level: 'warning',
+      title,
+      body,
+      navigation: { type: 'task', taskId },
+      urgency: 'critical',
     })
-    n.show()
   }
 
   private notifyTasksUpdated(): void {

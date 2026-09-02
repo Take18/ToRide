@@ -254,6 +254,12 @@ export type IpcChannels = {
   'rotation:status': [string, RotationStatus | null]
   'rotation:rotate-now': [string, void]
 
+  // Notifications
+  'notifications:list': [void, NotificationRecord[]]
+  'notifications:markRead': [string, void]
+  'notifications:markAllRead': [void, void]
+  'notifications:clear': [void, void]
+
   // MCP Server
   'mcp:status': [void, { installed: boolean; url: string }]
   'mcp:install': [void, { success: boolean; error?: string }]
@@ -265,6 +271,22 @@ export type NavigationPayload =
   | { type: 'task'; taskId: string }
   | { type: 'pr-detected'; taskId: string }
   | { type: 'devserver'; repoId: string; paneId: string; label: string }
+
+// 通知履歴のカテゴリ。Stop Hook 由来のタスク完了通知は履歴に残さないため含めない
+export type NotificationCategory = 'context' | 'rotation' | 'devserver' | 'mcp'
+export type NotificationLevel = 'info' | 'warning' | 'error'
+
+export type NotificationRecord = {
+  id: string
+  category: NotificationCategory
+  level: NotificationLevel
+  title: string
+  body: string
+  /** クリック時の遷移先。デスクトップ通知のクリックと同じ挙動を一覧からも再現する */
+  navigation: NavigationPayload | null
+  createdAt: string
+  readAt: string | null
+}
 
 // window.api の型定義（preload で expose するもの）
 export type WindowApi = {
@@ -361,6 +383,13 @@ export type WindowApi = {
   }
   system: {
     onResume: (callback: () => void) => () => void
+  }
+  notifications: {
+    list: () => Promise<NotificationRecord[]>
+    markRead: (id: string) => Promise<void>
+    markAllRead: () => Promise<void>
+    clear: () => Promise<void>
+    onUpdated: (callback: () => void) => () => void
   }
   navigation: {
     onNavigateTo: (callback: (payload: NavigationPayload) => void) => () => void
