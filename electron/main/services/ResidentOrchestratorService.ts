@@ -1,9 +1,18 @@
+import fs from 'fs'
+import path from 'path'
 import type { AppSettings, ResidentOrchestratorRunResult } from '../../../src/types/ipc'
-import type { Task } from '../../../src/types/task'
+import type { RotationConfig, Task } from '../../../src/types/task'
 import type { TaskService } from './TaskService'
 import type { StartTaskFn } from '../ipc/claude'
+import { expandPath } from '../utils/path'
 
 const DEFAULT_TITLE = '常駐オーケストレータ {date}'
+/**
+ * どの設定も空だったときの最後の砦。
+ * handoffPath が解決できないと SessionRotationService.onContextUpdate は無音で return するので、
+ * 「常駐オーケストレータなら必ずローテーションする」を設定漏れで崩されないようにアプリ所有のパスを持つ
+ */
+const DEFAULT_HANDOFF_PATH = '~/.toride/handoff/orchestrator.md'
 
 export type ResidentOrchestratorDeps = {
   taskService: TaskService
@@ -68,16 +77,20 @@ export class ResidentOrchestratorService {
 
     const title = expandDate(config.title?.trim() || DEFAULT_TITLE, today)
     const prompt = config.prompt ? expandDate(config.prompt, today) : undefined
+    // 常駐オーケストレータは長時間走り続ける前提なので、ローテーションは常に有効にする。
+    // 設定に rotation が無い / enabled: false が書かれていても true で上書きする。
+    // ここを設定任せにすると、設定漏れのまま無音でコンテキストが埋まる（rotation 有効時は
+    // 80/90% 通知も抑制されるため、気づく手がかりが何も残らない）
     // bootPrompt は prompt と同じにしたいケースがほとんどなので、省略時は prompt を流用する
     // （rotationDefaults に置くと他のタスクにも効いてしまうため、ここはタスク単位で載せる）
-    const rotation = config.rotation
-      ? {
-          ...config.rotation,
-          bootPrompt: config.rotation.bootPrompt
-            ? expandDate(config.rotation.bootPrompt, today)
-            : prompt,
-        }
-      : undefined
+    const rotation: Omit<RotationConfig, 'history'> = {
+      ...(config.rotation ?? {}),
+      enabled: true,
+      handoffPath: this.resolveHandoffPath(settings),
+      bootPrompt: config.rotation?.bootPrompt
+        ? expandDate(config.rotation.bootPrompt, today)
+        : prompt,
+    }
     const task = this.deps.taskService.create({
       type: 'orchestrate',
       title,
@@ -88,8 +101,10 @@ export class ResidentOrchestratorService {
       rotation,
     } as Omit<Task, 'id' | 'created_at'>)
     this.deps.notifyTasksUpdated()
+    // rotation は常に true なので、代わりに handoffPath の出どころを出す（無音の切り分けに要る）。
+    // undefined は「rotationDefaults に引かせる」の意なので、そう読める文字列にする
     console.log(
-      `[residentOrchestrator] created: "${title}" (${task.id}) rotation=${!!rotation?.enabled}`
+      `[residentOrchestrator] created: "${title}" (${task.id}) handoff=${rotation.handoffPath ?? '(rotationDefaults から解決)'}`
     )
 
     // 既定は起票して起動まで。autoStart: false を設定した場合だけ起票で止める
@@ -107,6 +122,30 @@ export class ResidentOrchestratorService {
       // リトライはしない。結果は押した人の画面に返るので通知は出さない
       return { result: 'start-failed', taskId: task.id, title, message }
     }
+  }
+
+  /**
+   * handoffPath を決める。
+   *
+   * SessionRotationService.resolveConfig が task → rotationDefaults の順に引くので、
+   * rotationDefaults に値があるならここでは undefined を返して引かせる。
+   * 焼き込んでしまうと、あとで設定画面から変えても起票済みのタスクに効かなくなる。
+   * どちらも空のときだけアプリ既定パスを埋めて、無音で止まる経路を消す。
+   */
+  private resolveHandoffPath(settings: AppSettings): string | undefined {
+    const fromConfig = settings.residentOrchestrator?.rotation?.handoffPath?.trim()
+    if (fromConfig) return fromConfig
+    if (settings.rotationDefaults?.handoffPath?.trim()) return undefined
+
+    // Claude 側の書き込みが親ディレクトリ不在で失敗しないよう、先に作っておく
+    const expanded = expandPath(DEFAULT_HANDOFF_PATH)
+    try {
+      fs.mkdirSync(path.dirname(expanded), { recursive: true })
+    } catch (err) {
+      // 作れなくてもパスは返す（書き込み時に Claude 側で作られる可能性が残る）
+      console.error('[residentOrchestrator] handoff ディレクトリの作成に失敗:', err)
+    }
+    return DEFAULT_HANDOFF_PATH
   }
 }
 
