@@ -101,9 +101,10 @@ export class ResidentOrchestratorService {
       rotation,
     } as Omit<Task, 'id' | 'created_at'>)
     this.deps.notifyTasksUpdated()
-    // rotation は常に true なので、代わりに解決後の handoffPath を出す（無音の切り分けに要る）
+    // rotation は常に true なので、代わりに handoffPath の出どころを出す（無音の切り分けに要る）。
+    // undefined は「rotationDefaults に引かせる」の意なので、そう読める文字列にする
     console.log(
-      `[residentOrchestrator] created: "${title}" (${task.id}) handoff=${rotation.handoffPath}`
+      `[residentOrchestrator] created: "${title}" (${task.id}) handoff=${rotation.handoffPath ?? '(rotationDefaults から解決)'}`
     )
 
     // 既定は起票して起動まで。autoStart: false を設定した場合だけ起票で止める
