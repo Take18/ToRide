@@ -4,7 +4,7 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprot
 import type { LocalHttpServer } from './LocalHttpServer.js'
 import type { TaskService } from './TaskService.js'
 import type { DevServerService } from './DevServerService.js'
-import type { Task } from '../../../src/types/task.js'
+import type { RuntimeTask, Task } from '../../../src/types/task.js'
 import type { AppSettings, ClaudeModel, DevServerExitInfo, LaunchMode } from '../../../src/types/ipc.js'
 import { resolveDevServerUrl } from '../../../src/utils/devServerUrl.js'
 
@@ -36,6 +36,55 @@ const tailLog = (
   const filtered = needle ? all.filter((l) => l.toLowerCase().includes(needle)) : all
   return { shown: filtered.slice(-lines), total: all.length, matched: filtered.length }
 }
+
+/**
+ * タスクをMCPレスポンス用に間引く。
+ *
+ * RuntimeTask をそのまま返すと prompt 全文 / images / rotation.history / sessionId が毎回乗り、
+ * status を1つ変えるだけの呼び出しでもコンテキストを大きく食う。
+ * 「どのタスクか」と「今どうなっているか」の判断に要るフィールドだけを残す。
+ */
+const summarizeTask = (
+  task: RuntimeTask,
+  opts: { detail?: boolean; prompt?: boolean } = {}
+): Record<string, unknown> => {
+  const out: Record<string, unknown> = {
+    id: task.id,
+    type: task.type,
+    status: task.status,
+    title: task.title,
+  }
+  // 空文字の pane（orchestrate）や未設定フィールドは行数を食うだけなので落とす
+  if (task.pane) out.pane = task.pane
+  if (task.repoId) out.repoId = task.repoId
+  if (task.depends_on) out.depends_on = task.depends_on
+
+  if (opts.detail) {
+    // タスクを識別・操作するのに要るタイプ固有フィールドだけ。プロンプト系は含めない
+    const t = task as RuntimeTask & Record<string, unknown>
+    for (const key of ['branch', 'baseBranch', 'ticket', 'url', 'prStatus', 'output', 'directory']) {
+      if (t[key] !== undefined && t[key] !== '') out[key] = t[key]
+    }
+    if (task.prUrl) out.prUrl = task.prUrl
+    if (task.workdir) out.workdir = task.workdir
+    if (task.pid !== undefined) out.pid = task.pid
+    // 2フィールド返すより使用率1つのほうが軽く、閾値判断にはこれで足りる
+    if (task.contextUsed !== undefined && task.contextLimit) {
+      out.contextPercent = Math.round((task.contextUsed / task.contextLimit) * 100)
+    }
+    if (task.startedAt) out.startedAt = task.startedAt
+    if (task.completedAt) out.completedAt = task.completedAt
+    if (task.rotationPending) out.rotationPending = true
+    if (task.rotationDisabledReason) out.rotationDisabledReason = task.rotationDisabledReason
+  }
+
+  if (opts.prompt && task.prompt) out.prompt = task.prompt
+
+  return out
+}
+
+/** MCPレスポンス用のJSON。インデントは嵩むだけなので付けない */
+const toJson = (value: unknown): string => JSON.stringify(value)
 
 /** DevServerExitInfo を1行のサマリにする */
 const formatExit = (exit?: DevServerExitInfo): string => {
@@ -115,7 +164,9 @@ export class McpServerService {
           },
           {
             name: 'list_tasks',
-            description: '現在登録されているタスクの一覧を取得する',
+            description:
+              '現在登録されているタスクの一覧を取得する。' +
+              'レスポンスにはプロンプト本文は含まれない（必要なときだけ include_prompt を指定すること）',
             inputSchema: {
               type: 'object' as const,
               properties: {
@@ -123,6 +174,12 @@ export class McpServerService {
                   type: 'string',
                   enum: ['will_do', 'doing', 'done'],
                   description: 'フィルタするステータス（省略時は全件）',
+                },
+                id: { type: 'string', description: 'タスクIDで1件だけ取得する' },
+                include_prompt: {
+                  type: 'boolean',
+                  description:
+                    'プロンプト本文を含める（既定 false）。全件に対して指定するとコンテキストを大きく消費するため、id や status で絞ってから使うこと',
                 },
               },
             },
@@ -134,11 +191,14 @@ export class McpServerService {
           },
           {
             name: 'update_task',
-            description: 'タスクのステータスやプロンプトを更新する',
+            description:
+              'タスクのタイトル・ステータス・プロンプトなどを更新する。指定したフィールドだけが変更される。' +
+              'レスポンスは更新後の要約のみで、プロンプト本文やローテーション履歴は含まれない',
             inputSchema: {
               type: 'object' as const,
               properties: {
                 id: { type: 'string', description: 'タスクID' },
+                title: { type: 'string', description: '新しいタイトル' },
                 status: {
                   type: 'string',
                   enum: ['will_do', 'doing', 'done'],
@@ -337,20 +397,40 @@ export class McpServerService {
                 ...rest,
               } as Omit<Task, 'id' | 'created_at'>)
               notifyTasksUpdated()
-              return { content: [{ type: 'text' as const, text: JSON.stringify(task, null, 2) }] }
+              return { content: [{ type: 'text' as const, text: toJson(summarizeTask(task, { detail: true })) }] }
             }
             case 'list_tasks': {
-              const tasks = taskService.list()
-              const filtered = args.status
-                ? tasks.filter((t) => t.status === args.status)
-                : tasks
-              return { content: [{ type: 'text' as const, text: JSON.stringify(filtered, null, 2) }] }
+              const { status, id, include_prompt } = args as {
+                status?: Task['status']
+                id?: string
+                include_prompt?: boolean
+              }
+              const filtered = taskService
+                .list()
+                .filter((t) => (id ? t.id === id : true))
+                .filter((t) => (status ? t.status === status : true))
+              return {
+                content: [
+                  {
+                    type: 'text' as const,
+                    text: toJson(
+                      filtered.map((t) => summarizeTask(t, { detail: true, prompt: include_prompt }))
+                    ),
+                  },
+                ],
+              }
             }
             case 'update_task': {
               const { id, ...data } = args as { id: string } & Record<string, unknown>
               const task = taskService.update(id, data as Partial<Task>)
               notifyTasksUpdated()
-              return { content: [{ type: 'text' as const, text: JSON.stringify(task, null, 2) }] }
+              // 何を書き換えたかは呼び出し側の確認に要るが、値の再掲は不要なのでキー名だけ返す
+              const updated = Object.keys(data)
+              return {
+                content: [
+                  { type: 'text' as const, text: toJson({ ...summarizeTask(task), updated }) },
+                ],
+              }
             }
             case 'delete_task': {
               const { id } = args as { id: string }
@@ -366,7 +446,12 @@ export class McpServerService {
               await startTask(id, launchMode, model)
               notifyTasksUpdated()
               const task = taskService.list().find((t) => t.id === id)
-              return { content: [{ type: 'text' as const, text: JSON.stringify(task, null, 2) }] }
+              if (!task) {
+                throw new Error(`Task not found: ${id}`)
+              }
+              return {
+                content: [{ type: 'text' as const, text: toJson(summarizeTask(task, { detail: true })) }],
+              }
             }
             case 'get_rotation_status': {
               const { id } = args as { id: string }
