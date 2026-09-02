@@ -87,10 +87,25 @@ export class LocalHttpServer {
   stop(): void {
     this.server?.close()
     this.server = null
+
+    // ポートファイルはインスタンス間で共有される1本しかないため、
+    // 別プロファイルで並走しているインスタンスが書いたものを消さないよう、
+    // 中身が自分のポートと一致するときだけ削除する。
+    // （無条件に消すと、2号機を閉じただけで稼働中インスタンスの
+    //   stop.sh / statusline.sh が参照先を失い、通知が黙って止まる）
+    const ownedPort = this.port
+    this.port = 0
+    if (!ownedPort) return
     try {
-      if (fs.existsSync(PORT_FILE)) {
-        fs.unlinkSync(PORT_FILE)
+      if (!fs.existsSync(PORT_FILE)) return
+      const written = fs.readFileSync(PORT_FILE, 'utf-8').trim()
+      if (written !== String(ownedPort)) {
+        console.log(
+          `[LocalHttpServer] port file holds ${written} (not mine: ${ownedPort}) - left as is`
+        )
+        return
       }
+      fs.unlinkSync(PORT_FILE)
     } catch {
       // ignore
     }

@@ -324,6 +324,7 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **bg://プロトコル**: `protocol.registerSchemesAsPrivileged` で`app.whenReady`より前に登録必要
 - **再起動時クリーンアップ**: 起動直後にdoing→will_do変換 + task_runtimeテーブル全削除
 - **LocalHttpServer**: Stop Hook・Status Line Hook・MCP SSEを共有する単一HTTPサーバー（`addRoute()` / `addRawRoute()` でエンドポイント追加）
+- **ポートファイルの削除条件**: `~/.toride/port` はインスタンス間で共有される1本しかないため、`LocalHttpServer.stop()` は中身が自分のポートと一致するときだけ削除する。無条件に消すと、別プロファイルで並走させた2号機を閉じただけで稼働中インスタンスの `stop.sh` / `statusline.sh` が参照先を失い、通知とコンテキスト更新が黙って止まる
 - **MCPトランスポート**: SSEトランスポートを使用。ポートは `~/.toride/port` と同一のLocalHttpServer上で動作
 - **セッションID**: タスク起動時にUUIDを生成し `--session-id` でClaudeに渡す。`claude --resume <uuid>` で完了後も再開可能
 - **pane占有判定**: 同一リポジトリ内のみに限定（別リポジトリの同名paneは除外）
