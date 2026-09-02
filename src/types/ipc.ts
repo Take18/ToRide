@@ -99,7 +99,8 @@ export type ResidentOrchestratorConfig = {
   prompt?: string     // 変数: {date}
   autoStart?: boolean // 既定 true。false にすると起票だけして起動しない
   // 起票するタスクに載せるセッションローテーション設定。
-  // rotationDefaults（全タスクに効くグローバル既定値）とは別で、このタスクにだけ効く
+  // rotationDefaults（全タスクに効くグローバル既定値）とは別で、このタスクにだけ効く。
+  // enabled は無視され常に true になる（常駐オーケストレータは長時間走る前提のため）
   rotation?: Omit<RotationConfig, 'history'>
 }
 

@@ -221,6 +221,8 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **設定画面に出すのは `repoId` / `title` / `prompt`**。`rotation` / `autoStart` は毎回変える値ではないので AppSettings 側だけに置く。ボタンの隣にも「どこに立つか」を1行出す
 - **`repoId` はフォールバックせずエラーにする**: 未設定・設定に無いIDのときは先頭のリポジトリや homedir に落とさない。意図しないリポジトリに立つと消す手間がかかるうえ、既定でそのまま起動まで進んでしまう。ボタン自体も disabled にして押す前に気づけるようにする
 - **rotation はタスク単位で載せる**: `rotationDefaults` はグローバル既定値なので、そこに書くと他リポジトリで走っている orchestrate にも効いてしまう。`rotation.bootPrompt` 省略時は `residentOrchestrator.prompt` を流用する
+- **ローテーションは常に有効**: 起票時に `rotation.enabled: true` を必ず載せる（設定の `rotation` が無い場合も、`enabled: false` が書かれている場合も上書きする）。長時間走る前提のタスクなので設定任せにはしない。rotation 有効時は 80/90% 通知が抑制されるため、設定漏れで無効のままだと「無音でコンテキストが埋まる」＝気づく手がかりが何も残らない状態になる
+- **`handoffPath` の解決**: `residentOrchestrator.rotation.handoffPath` → `rotationDefaults.handoffPath` → `~/.toride/handoff/orchestrator.md`（アプリ既定）。`rotationDefaults` に値があるときは起票時に**焼き込まず** `undefined` を載せて `SessionRotationService.resolveConfig` に引かせる（焼き込むと設定画面で変えても起票済みタスクに効かない）。どちらも空のときだけ既定パスを埋め、親ディレクトリを `mkdirSync` する。`handoffPath` が空だと `onContextUpdate` が無音で return するため、ここを空にしない責任は起票側が持つ
 - **ログ**: `[residentOrchestrator] created / skipped / start-failed`。見送りは正常系なので `console.log`。結果は押した人の画面にトーストで返るので、デスクトップ通知は出さない
 
 ### ペイン・開発サーバー・複数リポジトリ
@@ -297,7 +299,7 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 | `orchestrateSystemPrompt` | orchestrateタスク起動時に先頭に付与するシステムプロンプト（未設定時はデフォルト） |
 | `rotationDefaults` | セッションローテーションのグローバル既定値（enabled / threshold / handoffPath / bootPrompt）。タスク側が未指定のキーだけフォールバック |
 | `rotationHandoffInstruction` | handoffを書かせる指示文のテンプレート（変数: `{used}` `{handoffPath}`） |
-| `residentOrchestrator` | 常駐オーケストレータの内容（repoId / title / prompt は設定画面にUIあり。autoStart / rotation は設定のみ。title・prompt・rotation.bootPromptで `{date}` を展開） |
+| `residentOrchestrator` | 常駐オーケストレータの内容（repoId / title / prompt は設定画面にUIあり。autoStart / rotation は設定のみ。title・prompt・rotation.bootPromptで `{date}` を展開）。`rotation.enabled` は無視され常に true |
 | `notificationsEnabled` | デスクトップ通知の有効/無効（デフォルトtrue） |
 | `stopHookPort` | ローカルHTTPサーバーのポート（デフォルト39457） |
 | `pluginSettings` | チケットプラグイン設定（暗号化フィールドはsafeStorage管理） |
