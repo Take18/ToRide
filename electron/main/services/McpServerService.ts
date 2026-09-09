@@ -7,6 +7,7 @@ import type { DevServerService } from './DevServerService.js'
 import type { RuntimeTask, Task } from '../../../src/types/task.js'
 import type { AppSettings, ClaudeModel, DevServerExitInfo, LaunchMode } from '../../../src/types/ipc.js'
 import { resolveDevServerUrl } from '../../../src/utils/devServerUrl.js'
+import { normalizePrUrl } from './DismissedPrService.js'
 
 export type NotifyLevel = 'info' | 'question' | 'warning'
 
@@ -118,7 +119,8 @@ export class McpServerService {
     startTask?: (taskId: string, launchMode?: LaunchMode, model?: ClaudeModel) => Promise<void>,
     notifyUser?: (notification: McpUserNotification) => void,
     getRotationStatus?: (taskId: string) => unknown | null,
-    dismissPr?: (target: { taskId?: string; url?: string }) => { url: string; deletedTaskIds: string[] }
+    dismissPr?: (target: { taskId?: string; url?: string }) => { url: string; deletedTaskIds: string[] },
+    listDismissedPrs?: () => Array<{ url: string; dismissedAt: string }>
   ) {
     const createServer = (): Server => {
       const server = new Server(
@@ -248,6 +250,21 @@ export class McpServerService {
                   type: 'string',
                   description:
                     'GitHub PR URL。タスクが存在しないPRでも先回りで dismiss できる。該当する review タスクがあれば併せて削除される',
+                },
+              },
+            },
+          },
+          {
+            name: 'list_dismissed_prs',
+            description:
+              'dismiss 済みのレビュー依頼PRを新しい順に一覧する。ここに載っているPRはPR自動同期でタスクが再作成されない。' +
+              'PRがclose/mergeされると同期時に記録が消えるため、残っているのはオープンなPRだけ',
+            inputSchema: {
+              type: 'object' as const,
+              properties: {
+                url: {
+                  type: 'string',
+                  description: '指定したGitHub PR URLが dismiss 済みかだけを確認する（省略時は全件）',
                 },
               },
             },
@@ -465,6 +482,24 @@ export class McpServerService {
               const result = dismissPr({ taskId: id, url })
               notifyTasksUpdated()
               return { content: [{ type: 'text' as const, text: toJson({ dismissed: result.url, deletedTaskIds: result.deletedTaskIds }) }] }
+            }
+            case 'list_dismissed_prs': {
+              const { url } = args as { url?: string }
+              if (!listDismissedPrs) {
+                throw new Error('list_dismissed_prs is not available')
+              }
+              const all = listDismissedPrs()
+              // 登録時に正規化しているので、問い合わせ側のURLも同じ形に揃えてから突き合わせる
+              const target = url ? normalizePrUrl(url) : null
+              if (url && !target) {
+                throw new Error(`Not a GitHub PR URL: ${url}`)
+              }
+              const dismissed = target ? all.filter((pr) => pr.url === target) : all
+              return {
+                content: [
+                  { type: 'text' as const, text: toJson({ count: dismissed.length, dismissed }) },
+                ],
+              }
             }
             case 'start_task': {
               const { id, launchMode, model } = args as { id: string; launchMode?: LaunchMode; model?: ClaudeModel }
