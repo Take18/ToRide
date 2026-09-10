@@ -1,6 +1,11 @@
 import type Database from 'better-sqlite3'
 import type { TaskService } from './TaskService'
 
+export interface DismissedPr {
+  url: string
+  dismissedAt: string
+}
+
 /**
  * dismissしたレビューPRのURLを管理するサービス。
  * dismiss済みPRはPR自動同期でタスク再作成の対象外になる。
@@ -22,6 +27,14 @@ export class DismissedPrService {
   listUrls(): string[] {
     const rows = this.db.prepare(`SELECT url FROM dismissed_prs`).all() as Array<{ url: string }>
     return rows.map((row) => row.url)
+  }
+
+  /** dismiss済みPRを新しい順に返す（一覧確認用。同期処理は listUrls() を使う） */
+  list(): DismissedPr[] {
+    const rows = this.db
+      .prepare(`SELECT url, dismissed_at FROM dismissed_prs ORDER BY dismissed_at DESC`)
+      .all() as Array<{ url: string; dismissed_at: string }>
+    return rows.map((row) => ({ url: row.url, dismissedAt: row.dismissed_at }))
   }
 
   remove(url: string): void {

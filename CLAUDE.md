@@ -160,7 +160,7 @@ src/
   - chore: `{directory}`
 - **Stop Hook**: `~/.claude/hooks/stop.sh` でタスク完了を検知・HTTP通知（設定画面からインストール）
 - **Status Line Hook**: `~/.claude/statusline.sh` で各APIレスポンス後にコンテキスト使用量をリアルタイム更新（設定画面からインストール）
-- **MCP サーバー**: `create_task` / `list_tasks` / `list_repos` / `update_task` / `delete_task` / `dismiss_pr` / `start_task` / `list_dev_servers` / `start_dev_server` / `stop_dev_server` / `get_dev_server_log` / `notify_user` / `get_rotation_status` ツールを公開（設定画面からインストール、`~/.claude/settings.json` に自動登録）
+- **MCP サーバー**: `create_task` / `list_tasks` / `list_repos` / `update_task` / `delete_task` / `dismiss_pr` / `list_dismissed_prs` / `start_task` / `list_dev_servers` / `start_dev_server` / `stop_dev_server` / `get_dev_server_log` / `notify_user` / `get_rotation_status` ツールを公開（設定画面からインストール、`~/.claude/settings.json` に自動登録）
   - `start_task` は `launchMode` パラメータで起動モードを指定可能
   - `update_task` は `title` / `status` / `prompt` / `depends_on` / `rotation` を部分更新できる
   - `create_task` / `list_tasks` / `update_task` / `start_task` のレスポンスは要約のみ（`summarizeTask()`）。`list_tasks` は `id` で1件に絞れ、プロンプト本文は `include_prompt: true` のときだけ含まれる
@@ -169,6 +169,7 @@ src/
   - `notify_user` はタスク内のClaudeセッションが任意のタイミングでデスクトップ通知を送るツール（`message` 必須 / `level`: info・question・warning / `title` / `taskTitle` / `taskId`）。`taskTitle` からタスクを逆引きし、通知クリックで該当タスクへジャンプする
   - `get_rotation_status` はセッションローテーションの状態（使用率・閾値・回数・履歴・保留/停止）を返す。`update_task` の `rotation` で設定を変更できる
   - `dismiss_pr` はレビュー依頼PRの dismiss（PR自動同期の対象外にしてタスクを削除）。`id`（reviewタスクID）か `url`（PR URL）のどちらか一方を指定する。`url` 指定はタスクが無いPRにも先回りで使える
+  - `list_dismissed_prs` は dismiss 済みPRを新しい順に返す（`url` / `dismissedAt`）。`url` を渡すと そのPRが dismiss 済みかだけを確認できる。close/merge されたPRは同期時に記録が消えるため、残るのはオープンなPRだけ
 
 ### Git 連携
 
