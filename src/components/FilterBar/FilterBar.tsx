@@ -92,6 +92,8 @@ export default function FilterBar({
 
       <div className="flex-1" />
 
+      {/* ターミナルパネルを開くと右端が隠れるため、ベルは右端に置かずPR同期の左に固定する */}
+      <NotificationBell />
       {onSyncPRs && (
         <button
           onClick={onSyncPRs}
@@ -121,7 +123,6 @@ export default function FilterBar({
           </button>
         </div>
       )}
-      <NotificationBell />
       <button
         onClick={() => navigate('/archive')}
         className="px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-sm text-gray-300"
