@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import { createPortal } from 'react-dom'
 import type { RuntimeTask } from '../../types/task'
-import type { ClaudeModel, LaunchMode } from '../../types/ipc'
+import type { AgentInfo, ClaudeModel, LaunchMode } from '../../types/ipc'
+import { DEFAULT_AGENT_ID, listMissingFeatures } from '../../utils/agent'
 import { useTaskStore } from '../../stores/taskStore'
 import { useTerminalStore } from '../../stores/terminalStore'
 import ContextMeter from '../ContextMeter/ContextMeter'
@@ -13,7 +14,9 @@ type Props = {
   task: RuntimeTask
   hasFreePane?: boolean
   defaultLaunchMode?: LaunchMode
-  availableModels?: string[]
+  agents?: AgentInfo[]
+  /** エージェントIDごとのモデル一覧 */
+  modelsByAgent?: Record<string, string[]>
   onEdit?: (task: RuntimeTask) => void
   onNavigate?: (taskId: string, dir: 'up' | 'down' | 'left' | 'right') => void
 }
@@ -29,8 +32,9 @@ const TYPE_COLORS: Record<string, string> = {
 }
 
 const ALL_LAUNCH_MODES: LaunchMode[] = ['normal', 'auto', 'bypass', 'plan']
-// モデル一覧の取得前・取得失敗時に使うフォールバック
-const FALLBACK_MODELS: string[] = ['opus', 'sonnet', 'haiku']
+// claude のモデル一覧の取得前・取得失敗時に使うフォールバック。
+// 他のエージェントは一覧が取れなければ候補を出さず、既定モデルで起動する
+const FALLBACK_CLAUDE_MODELS: string[] = ['opus', 'sonnet', 'haiku']
 
 type DropdownSelectProps<T extends string> = {
   value: T
@@ -117,12 +121,13 @@ type SplitButtonProps = {
   disabledTitle?: string
   colorClass: string
   defaultMode: LaunchMode
+  modes: readonly LaunchMode[]
   models: string[]
   onLaunch: (mode: LaunchMode, model: ClaudeModel) => void
   onKeyDown: (e: React.KeyboardEvent) => void
 }
 
-function SplitButton({ label, disabled, disabledTitle, colorClass, defaultMode, models, onLaunch, onKeyDown }: SplitButtonProps) {
+function SplitButton({ label, disabled, disabledTitle, colorClass, defaultMode, modes, models, onLaunch, onKeyDown }: SplitButtonProps) {
   const [selectedMode, setSelectedMode] = useState<LaunchMode>(defaultMode)
   const [selectedModel, setSelectedModel] = useState<ClaudeModel>('default')
   const modelOptions: ClaudeModel[] = ['default', ...models]
@@ -147,7 +152,7 @@ function SplitButton({ label, disabled, disabledTitle, colorClass, defaultMode, 
         </button>
         <DropdownSelect
           value={selectedMode}
-          options={ALL_LAUNCH_MODES}
+          options={modes}
           disabled={disabled}
           triggerClass={`px-1.5 py-1 rounded-r border-l border-black/20 text-xs ${base}`}
           ariaLabel="起動モードを選択"
@@ -208,7 +213,7 @@ function DoneDetail({ task, onButtonKeyDown }: { task: RuntimeTask; onButtonKeyD
   )
 }
 
-export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode = 'normal', availableModels, onEdit, onNavigate }: Props) {
+export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode = 'normal', agents, modelsByAgent, onEdit, onNavigate }: Props) {
   const [rotating, setRotating] = useState(false)
   const rotationCount = task.rotation?.history?.length ?? 0
 
@@ -223,7 +228,17 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
     }
   }
 
-  const models = availableModels && availableModels.length > 0 ? availableModels : FALLBACK_MODELS
+  // モードとモデルの候補はタスクのエージェントに従う
+  const agentId = task.agent ?? DEFAULT_AGENT_ID
+  const agentInfo = agents?.find((a) => a.id === agentId)
+  const agentModels = modelsByAgent?.[agentId]
+  const models = agentModels && agentModels.length > 0
+    ? agentModels
+    : agentId === 'claude' ? FALLBACK_CLAUDE_MODELS : []
+  const launchModes = agentInfo?.launchModes ?? ALL_LAUNCH_MODES
+  // 一覧の取得前は claude だけ対応扱いにする（他のエージェントで一瞬メーターが出るのを防ぐ）
+  const contextSupported = agentInfo ? agentInfo.capabilities.contextSource === 'statusline' : agentId === 'claude'
+  const missingFeatures = agentInfo ? listMissingFeatures(agentInfo.capabilities) : []
   const tasks = useTaskStore((s) => s.tasks)
   const startTask = useTaskStore((s) => s.startTask)
   const resumeTask = useTaskStore((s) => s.resumeTask)
@@ -341,6 +356,14 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
           <span className={`text-xs px-2 py-0.5 rounded text-white font-medium shrink-0 ${TYPE_COLORS[task.type]}`}>
             {task.type}
           </span>
+          {agentId !== DEFAULT_AGENT_ID && (
+            <span
+              className="text-xs px-2 py-0.5 rounded font-medium shrink-0 bg-gray-900/70 text-emerald-300 border border-emerald-700"
+              title={missingFeatures.length > 0 ? `このエージェントでは使えない機能: ${missingFeatures.join(' / ')}` : undefined}
+            >
+              {agentInfo?.displayName ?? agentId}
+            </span>
+          )}
           <span className="text-sm font-medium text-white line-clamp-2 break-all" title={task.title}>{task.title}</span>
         </div>
 
@@ -364,6 +387,7 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
                 disabledTitle={depBlocked ? '依存タスクが未完了です' : paneBlocked ? '空きペインがありません' : undefined}
                 colorClass="bg-blue-600 hover:bg-blue-700 text-white"
                 defaultMode={effectiveDefaultMode}
+                modes={launchModes}
                 models={models}
                 onLaunch={(mode, model) => handleStart(mode, model)}
                 onKeyDown={handleButtonKeyDown}
@@ -465,11 +489,18 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
               </div>
             )}
 
-            <ContextMeter
-              taskId={task.id}
-              used={task.contextUsed}
-              limit={task.contextLimit}
-            />
+            {contextSupported ? (
+              <ContextMeter
+                taskId={task.id}
+                used={task.contextUsed}
+                limit={task.contextLimit}
+              />
+            ) : (
+              <div className="flex justify-between text-xs text-gray-400">
+                <span>Context</span>
+                <span className="text-gray-500">未対応（#77 で対応予定）</span>
+              </div>
+            )}
 
             {rotationCount > 0 && (
               <div className="text-xs text-gray-400">
@@ -606,6 +637,7 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
                   disabledTitle="空きペインがありません"
                   colorClass="bg-indigo-600 hover:bg-indigo-700 text-white"
                   defaultMode={effectiveDefaultMode}
+                  modes={launchModes}
                   models={models}
                   onLaunch={(mode, model) => handleResume(mode, model)}
                   onKeyDown={handleButtonKeyDown}

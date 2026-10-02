@@ -9,7 +9,7 @@ import type { TerminalService } from '../services/TerminalService'
 import type { StopHookService } from '../services/StopHookService'
 import type { AgentRegistry } from '../agents/AgentRegistry'
 import type { AgentProvider } from '../agents/types'
-import type { AppSettings, ClaudeModel, LaunchMode } from '../../../src/types/ipc'
+import type { AgentId, AppSettings, ClaudeModel, LaunchMode } from '../../../src/types/ipc'
 import type { Task } from '../../../src/types/task'
 
 const DEFAULT_ORCHESTRATE_SYSTEM_PROMPT = `あなたはタスクオーケストレーターです。ToRide MCPツールを使ってミッションを自律的に実行してください。
@@ -23,7 +23,7 @@ const DEFAULT_ORCHESTRATE_SYSTEM_PROMPT = `あなたはタスクオーケスト�
 - list_repos: リポジトリ一覧を取得（create_task の repoId に使う）
 - list_tasks: タスク一覧を取得してステータスを確認
 - create_task: タスクを新規作成（type: feat/bugfix/review/research/design/chore）
-- start_task: タスクを起動（Claude が自動実行を開始する）
+- start_task: タスクを起動（タスクに設定されたエージェントが自動実行を開始する）
 - update_task: タスクのステータス・内容を更新
 - delete_task: タスクを削除
 - notify_user: ユーザーのデスクトップに通知を送る（判断を仰ぎたいとき・警告が出たときのみ）
@@ -167,98 +167,131 @@ function attachSession(deps: StartTaskDeps, provider: AgentProvider, taskId: str
 }
 
 export function createStartTaskFn(deps: StartTaskDeps): StartTaskFn {
-  const { claudeService, taskService, gitService, agentRegistry, getWindow, getSettings } = deps
+  // 起動前チェック（codex doctor は初回10秒ほどかかる）の間はまだ will_do のままなので、
+  // ボタンの連打や MCP との同時起動で同じタスクに PTY が2本立たないよう、起動中のタスクを覚えておく
+  const starting = new Set<string>()
   return async (taskId: string, launchMode?: LaunchMode, model?: ClaudeModel, options?: StartTaskOptions) => {
-    const tasks = taskService.list()
-    const task = tasks.find((t) => t.id === taskId)
-    if (!task) throw new Error(`Task not found: ${taskId}`)
-
-    const provider = agentRegistry.get(task.agent)
-    await ensureAgentReady(provider)
-
-    const settings = getSettings()
-    let resolvedWorkdir = ''
-    let assignedPane = task.pane
-
-    if (task.type === 'chore' && 'directory' in task) {
-      resolvedWorkdir = expandPath(task.directory)
-    } else if (task.type === 'orchestrate') {
-      // orchestrate はコーディネーター役なのでペインを占有しない（workdir だけ先頭ペインから借りる）
-      const repoId = 'repoId' in task ? (task as { repoId?: string }).repoId : undefined
-      const repo = repoId ? settings.repos.find((r) => r.id === repoId) : settings.repos[0]
-      resolvedWorkdir = expandPath(repo?.panes[0]?.path ?? homedir())
-      assignedPane = ''
-    } else {
-      const repoId = 'repoId' in task ? task.repoId : undefined
-      const repo = repoId ? settings.repos.find((r) => r.id === repoId) : settings.repos[0]
-      if (!repo) throw new Error('NO_REPO_ASSIGNED')
-      // 同一リポジトリ内のdoingタスクのみで占有判定（別リポジトリの同名paneを除外）
-      // repoId未設定のタスクはrepos[0]に属するとみなす（MCP経由作成タスクの互換性）
-      const occupiedPaneIds = new Set(
-        tasks
-          .filter((t) => t.id !== taskId && t.status === 'doing' && t.pane &&
-            (('repoId' in t ? (t as { repoId?: string }).repoId : undefined) ?? settings.repos[0]?.id) === repo.id)
-          .map((t) => t.pane)
-      )
-      const freePaneConfig = repo.panes.find((p) => !occupiedPaneIds.has(p.id))
-      if (!freePaneConfig) throw new Error('NO_FREE_PANE')
-      assignedPane = freePaneConfig.id
-      resolvedWorkdir = expandPath(freePaneConfig.path)
-    }
-
-    // rotation 経由の再起動では checkout しない（未コミット変更の破棄は人の判断が必要なため）
-    // checkout に失敗してもステータスを doing にしない
-    if (!options?.skipCheckout && 'branch' in task && task.branch) {
-      const baseBranch = 'baseBranch' in task ? task.baseBranch : undefined
-      await gitService.checkout(resolvedWorkdir, task.branch, baseBranch)
-    }
-
-    // 事前チェックが全て通ってからステータス・paneをdoingに変更
-    taskService.update(taskId, { status: 'doing', pane: assignedPane })
-
+    if (starting.has(taskId)) throw new Error('ALREADY_STARTING')
+    starting.add(taskId)
     try {
-      // ターミナルリセットを先にレンダラーへ通知（古い表示を消す）
-      getWindow()?.webContents.send('terminal:reset', taskId)
-
-      let rawPrompt: string | undefined
-      if (task.type === 'orchestrate') {
-        // orchestrate: システムプロンプト + メモリディレクトリ + ミッション説明を結合
-        const systemPrompt = settings.orchestrateSystemPrompt ?? DEFAULT_ORCHESTRATE_SYSTEM_PROMPT
-        rawPrompt = buildOrchestratePrompt(taskId, systemPrompt, task.prompt)
-      } else {
-        rawPrompt = options?.promptOverride || task.prompt || settings.promptTemplates?.[task.type]
-      }
-      const basePrompt = appendImageSection(rawPrompt ? (task.type === 'orchestrate' ? rawPrompt : interpolateTemplate(rawPrompt, task)) : undefined, task)
-      // bootPrompt は置換ではなく追加（置換すると orchestrate のシステムプロンプトとメモリ案内が失われる）
-      const taskPrompt = options?.extraPrompt
-        ? [basePrompt, options.extraPrompt].filter(Boolean).join('\n\n')
-        : basePrompt
-      const effectiveLaunchMode = resolveLaunchMode(launchMode, task.type === 'research', settings)
-      const sessionId = provider.capabilities.presetSessionId ? randomUUID() : undefined
-      claudeService.start(taskId, resolvedWorkdir, provider, {
-        prompt: taskPrompt,
-        launchMode: effectiveLaunchMode,
-        model,
-        cols: options?.cols,
-        rows: options?.rows,
-        sessionId,
-      })
-      taskService.update(taskId, { sessionId, lastLaunchMode: effectiveLaunchMode, lastModel: model })
-
-      attachSession(deps, provider, taskId, resolvedWorkdir)
-    } catch (startError) {
-      // 起動に失敗したらステータスを元に戻す
-      taskService.update(taskId, { status: 'will_do' })
-      throw startError
+      await startTaskOnce(deps, taskId, launchMode, model, options)
+    } finally {
+      starting.delete(taskId)
     }
+  }
+}
+
+async function startTaskOnce(
+  deps: StartTaskDeps,
+  taskId: string,
+  launchMode?: LaunchMode,
+  model?: ClaudeModel,
+  options?: StartTaskOptions
+): Promise<void> {
+  const { claudeService, taskService, gitService, agentRegistry, getWindow, getSettings } = deps
+  const tasks = taskService.list()
+  const task = tasks.find((t) => t.id === taskId)
+  if (!task) throw new Error(`Task not found: ${taskId}`)
+
+  const provider = agentRegistry.get(task.agent)
+  await ensureAgentReady(provider)
+
+  const settings = getSettings()
+  let resolvedWorkdir = ''
+  let assignedPane = task.pane
+
+  if (task.type === 'chore' && 'directory' in task) {
+    resolvedWorkdir = expandPath(task.directory)
+  } else if (task.type === 'orchestrate') {
+    // orchestrate はコーディネーター役なのでペインを占有しない（workdir だけ先頭ペインから借りる）
+    const repoId = 'repoId' in task ? (task as { repoId?: string }).repoId : undefined
+    const repo = repoId ? settings.repos.find((r) => r.id === repoId) : settings.repos[0]
+    resolvedWorkdir = expandPath(repo?.panes[0]?.path ?? homedir())
+    assignedPane = ''
+  } else {
+    const repoId = 'repoId' in task ? task.repoId : undefined
+    const repo = repoId ? settings.repos.find((r) => r.id === repoId) : settings.repos[0]
+    if (!repo) throw new Error('NO_REPO_ASSIGNED')
+    // 同一リポジトリ内のdoingタスクのみで占有判定（別リポジトリの同名paneを除外）
+    // repoId未設定のタスクはrepos[0]に属するとみなす（MCP経由作成タスクの互換性）
+    const occupiedPaneIds = new Set(
+      tasks
+        .filter((t) => t.id !== taskId && t.status === 'doing' && t.pane &&
+          (('repoId' in t ? (t as { repoId?: string }).repoId : undefined) ?? settings.repos[0]?.id) === repo.id)
+        .map((t) => t.pane)
+    )
+    const freePaneConfig = repo.panes.find((p) => !occupiedPaneIds.has(p.id))
+    if (!freePaneConfig) throw new Error('NO_FREE_PANE')
+    assignedPane = freePaneConfig.id
+    resolvedWorkdir = expandPath(freePaneConfig.path)
+  }
+
+  // rotation 経由の再起動では checkout しない（未コミット変更の破棄は人の判断が必要なため）
+  // checkout に失敗してもステータスを doing にしない
+  if (!options?.skipCheckout && 'branch' in task && task.branch) {
+    const baseBranch = 'baseBranch' in task ? task.baseBranch : undefined
+    await gitService.checkout(resolvedWorkdir, task.branch, baseBranch)
+  }
+
+  // 事前チェックが全て通ってからステータス・paneをdoingに変更
+  taskService.update(taskId, { status: 'doing', pane: assignedPane })
+
+  try {
+    // ターミナルリセットを先にレンダラーへ通知（古い表示を消す）
+    getWindow()?.webContents.send('terminal:reset', taskId)
+
+    let rawPrompt: string | undefined
+    if (task.type === 'orchestrate') {
+      // orchestrate: システムプロンプト + メモリディレクトリ + ミッション説明を結合
+      const systemPrompt = settings.orchestrateSystemPrompt ?? DEFAULT_ORCHESTRATE_SYSTEM_PROMPT
+      rawPrompt = buildOrchestratePrompt(taskId, systemPrompt, task.prompt)
+    } else {
+      rawPrompt = options?.promptOverride || task.prompt || settings.promptTemplates?.[task.type]
+    }
+    const expandedPrompt = rawPrompt ? (task.type === 'orchestrate' ? rawPrompt : interpolateTemplate(rawPrompt, task)) : undefined
+    // 画像を起動引数で添付できるエージェントには、プロンプトにパスを書かずに引数で渡す
+    const imagesAsArgument = provider.capabilities.imageInput === 'argument'
+    const basePrompt = imagesAsArgument ? expandedPrompt : appendImageSection(expandedPrompt, task)
+    // bootPrompt は置換ではなく追加（置換すると orchestrate のシステムプロンプトとメモリ案内が失われる）
+    const taskPrompt = options?.extraPrompt
+      ? [basePrompt, options.extraPrompt].filter(Boolean).join('\n\n')
+      : basePrompt
+    const effectiveLaunchMode = resolveLaunchMode(launchMode, task.type === 'research', settings)
+    // 起動前に採番できないエージェント（Codex）は SessionStart hook で受け取るまで空にしておく。
+    // 前回のセッションIDが残っていると、再開ボタンが古いセッションを開いてしまう
+    const sessionId = provider.capabilities.presetSessionId ? randomUUID() : undefined
+    taskService.update(taskId, { sessionId, transcriptPath: undefined, lastLaunchMode: effectiveLaunchMode, lastModel: model })
+    claudeService.start(taskId, resolvedWorkdir, provider, {
+      prompt: taskPrompt,
+      images: imagesAsArgument ? task.images : undefined,
+      launchMode: effectiveLaunchMode,
+      model,
+      cols: options?.cols,
+      rows: options?.rows,
+      sessionId,
+    })
+
+    // ローテーション未対応のエージェントでは、有効にしていても動かないことをカードに出す
+    const rotationRequested = task.rotation?.enabled ?? settings.rotationDefaults?.enabled ?? false
+    if (rotationRequested && !provider.capabilities.rotation) {
+      taskService.update(taskId, {
+        rotationDisabledReason: `${provider.displayName} はセッションローテーションに未対応です（#78 で対応予定）`,
+      })
+    }
+
+    attachSession(deps, provider, taskId, resolvedWorkdir)
+  } catch (startError) {
+    // 起動に失敗したらステータスを元に戻す
+    taskService.update(taskId, { status: 'will_do' })
+    throw startError
   }
 }
 
 export function registerClaudeHandlers(deps: StartTaskDeps, startTask: StartTaskFn): void {
   const { claudeService, taskService, gitService, agentRegistry, getWindow, getSettings } = deps
 
-  // モデル一覧は今のところ claude 固定（エージェント別の取得は起動UIのエージェント対応と合わせて入れる）
-  ipcMain.handle('claude:list-models', () => agentRegistry.get('claude').listModels())
+  // モデル一覧はエージェントに従属する（未指定は claude）
+  ipcMain.handle('claude:list-models', (_, agentId?: AgentId) => agentRegistry.get(agentId).listModels())
 
   ipcMain.handle(
     'claude:start',
@@ -269,7 +302,7 @@ export function registerClaudeHandlers(deps: StartTaskDeps, startTask: StartTask
       try {
         await startTask(taskId, launchMode, model, { promptOverride: prompt, cols, rows })
       } catch (error) {
-        throw new Error(`Failed to start Claude: ${(error as Error).message}`)
+        throw new Error(`Failed to start agent: ${(error as Error).message}`)
       }
     }
   )
@@ -370,7 +403,7 @@ export function registerClaudeHandlers(deps: StartTaskDeps, startTask: StartTask
           throw startError
         }
       } catch (error) {
-        throw new Error(`Failed to resume Claude: ${(error as Error).message}`)
+        throw new Error(`Failed to resume agent: ${(error as Error).message}`)
       }
     }
   )

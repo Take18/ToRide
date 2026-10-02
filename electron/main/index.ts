@@ -17,6 +17,10 @@ import { McpServerService, type McpUserNotification } from './services/McpServer
 import { ModelListService } from './services/ModelListService'
 import { AgentRegistry } from './agents/AgentRegistry'
 import { ClaudeProvider } from './agents/ClaudeProvider'
+import { CodexProvider } from './agents/CodexProvider'
+import { AgentSessionService } from './services/AgentSessionService'
+import { CodexConfigService } from './services/CodexConfigService'
+import { registerAgentHandlers } from './ipc/agents'
 import { SlashCommandService } from './services/SlashCommandService'
 import { McpHookService } from './services/McpHookService'
 import { SessionRotationService } from './services/SessionRotationService'
@@ -324,7 +328,21 @@ app.whenReady().then(() => {
     }
   })
   const modelListService = new ModelListService()
-  const agentRegistry = new AgentRegistry([new ClaudeProvider(modelListService)])
+  const codexProvider = new CodexProvider(() => localHttpServer.getPort())
+  const agentRegistry = new AgentRegistry([new ClaudeProvider(modelListService), codexProvider])
+  // セッションIDを起動前に採番できないエージェント（Codex）は、SessionStart hook で受け取って保存する。
+  // 保存されるまで再開ボタンは出ない
+  const agentSessionService = new AgentSessionService(localHttpServer)
+  agentSessionService.onSession(({ taskId, sessionId, transcriptPath }) => {
+    try {
+      const task = taskService.list().find((t) => t.id === taskId)
+      if (!task || agentRegistry.get(task.agent).capabilities.presetSessionId) return
+      taskService.update(taskId, { sessionId, transcriptPath })
+      getWindow()?.webContents.send('tasks:updated')
+    } catch (err) {
+      console.error('[agentSessionService] session save failed:', err)
+    }
+  })
   const startTaskDeps = {
     claudeService,
     taskService,
@@ -346,6 +364,7 @@ app.whenReady().then(() => {
     getWindow,
     startTask: startTaskFn,
     notify: (input) => notificationService.notify(input),
+    supportsRotation: (task) => agentRegistry.get(task.agent).capabilities.rotation,
   })
   // 閾値判定はコンテキスト更新に相乗りする（Status Line Hook 経由が主系）
   claudeService.onContextUpdate((info) => rotationService?.onContextUpdate(info))
@@ -405,6 +424,16 @@ app.whenReady().then(() => {
   registerTerminalHandlers(terminalService, getWindow, stopHookService, rotationService ?? undefined)
   registerGitHandlers(gitService)
   registerClaudeHandlers(startTaskDeps, startTaskFn)
+  registerAgentHandlers(agentRegistry, codexProvider, new CodexConfigService(getSettings))
+  // codex doctor は初回10秒ほどかかるため、Codex を使う設定なら起動直後に済ませておく
+  {
+    const s = getSettings()
+    const usesCodex =
+      s.defaultAgentId === 'codex' ||
+      Object.values(s.agentDefaults ?? {}).includes('codex') ||
+      taskService.list().some((t) => t.agent === 'codex' && t.status !== 'done')
+    if (usesCodex) void codexProvider.getAuthStatus()
+  }
 
   // スラッシュコマンド／スキル補完
   const slashCommandService = new SlashCommandService()
