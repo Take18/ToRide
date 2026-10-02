@@ -45,4 +45,16 @@ export interface AgentProvider {
   buildCommand(opts: LaunchOptions): AgentCommand
   buildResumeCommand(sessionId: string, opts: LaunchOptions): AgentCommand
   listModels(): Promise<string[]>
+  /**
+   * initialPrompt が inject のエージェントで、注入してはいけない画面の検出パターン。
+   * 照合対象は ANSI エスケープと空白を除いた PTY 出力。blockedBy が出たら unblockedBy が出るまで注入しない
+   */
+  injectGuard?: InjectGuard
+}
+
+export type InjectGuard = {
+  blockedBy: RegExp
+  unblockedBy: RegExp
+  /** 待っている間に出す通知の本文 */
+  notice: string
 }

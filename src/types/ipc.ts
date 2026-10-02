@@ -277,7 +277,7 @@ export type NavigationPayload =
   | { type: 'devserver'; repoId: string; paneId: string; label: string }
 
 // 通知履歴のカテゴリ。Stop Hook 由来のタスク完了通知は履歴に残さないため含めない
-export type NotificationCategory = 'context' | 'rotation' | 'devserver' | 'mcp'
+export type NotificationCategory = 'context' | 'rotation' | 'devserver' | 'mcp' | 'session'
 export type NotificationLevel = 'info' | 'warning' | 'error'
 
 export type NotificationRecord = {

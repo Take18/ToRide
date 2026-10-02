@@ -15,6 +15,14 @@ export class ClaudeProvider implements AgentProvider {
   readonly id = 'claude' as const
   readonly displayName = 'Claude'
   readonly capabilities = CAPABILITIES
+  // 初めて開くフォルダでは信頼確認ダイアログが出る。既定の選択肢が「No, exit」なので、
+  // ここに注入の Enter が届くと claude が終了してタスクが doing のまま止まる。
+  // ダイアログを抜けるとウェルカムバナー（Claude Code vX.Y.Z）が描画される
+  readonly injectGuard = {
+    blockedBy: /trustthisfolder/i,
+    unblockedBy: /ClaudeCodev\d/i,
+    notice: 'フォルダの信頼確認が出ています。ターミナルで選ぶと、プロンプトを送信します',
+  }
 
   constructor(private modelListService: ModelListService) {}
 

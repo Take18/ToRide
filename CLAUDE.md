@@ -197,7 +197,7 @@ src/
 
 - **一覧**: ベルをクリックするとパネルを開き、新しい順に表示（カテゴリ・レベル・相対時刻つき）。未読はバッジで件数を表示
 - **既読**: 項目ごとの「既読」ボタンと「すべて既読」ボタン。項目本体をクリックすると既読にしたうえで通知クリックと同じ遷移をする
-- **記録対象**: `context`（80%/90%警告）/ `rotation`（保留・停止・中止）/ `devserver`（異常終了）/ `mcp`（`notify_user`）
+- **記録対象**: `context`（80%/90%警告）/ `rotation`（保留・停止・中止）/ `devserver`（異常終了）/ `mcp`（`notify_user`）/ `session`（フォルダ信頼確認などで起動プロンプトの注入を待っている）
 - **記録しないもの**: Stop Hook 由来のタスク完了通知、GitHub PR同期・トークンエラー、手動完了時の完了通知
 - **通知OFF時**: `notificationsEnabled = false` でもデスクトップ通知を出さないだけで履歴には残る
 - **保持**: SQLite の `notifications` テーブルに最大200件。超えた分は古い側から削除
@@ -355,6 +355,7 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **resume時のworkdir**: `claude --resume` はcwdでセッションを検索するため、元のpaneのworkdirを使用
 - **orchestrateのpane非占有**: orchestrateタスクは `pane` を空文字にして起動し、ペイン占有判定の対象外（workdirはリポジトリ先頭ペインのパスを借用）
 - **プロンプト注入タイミング**: 固定遅延ではなくTUI起動検知ベースで注入し自動送信
+- **注入を止める画面（injectGuard）**: 初めて開くフォルダでは claude がフォルダ信頼確認を出し、既定の選択肢が「No, exit」になっている。ここに注入の Enter が届くと claude が終了し、タスクが doing のまま止まる。`ClaudeProvider.injectGuard` でダイアログ（`trust this folder`）を検出したら、ウェルカムバナー（`Claude Code vX.Y.Z`）が出るまで注入を見送り、`session` カテゴリで通知する。12秒のフォールバック注入も見送る。ToRide 側で自動的に信頼を選ぶことはしない（信頼するかは人が決める）。照合は ANSI と空白を除いた出力で行い、解除時にもバッファを空にする（選択を動かしたときの再描画が残ると再ブロックするため）
 - **PR URL検出**: ターミナル出力スキャンではなくStatus Line Hookのペイロードから検出
 - **開発サーバーの終了情報**: `DevServerService` が `lastExits: Map<key, DevServerExitInfo>` で直近の終了（code / signal / 時刻 / manual・abnormal / spawn失敗メッセージ）を保持し、`status()` に載せて返す。`start()` 時にクリアするので「今の起動で落ちたか」だけが残る
 - **開発サーバーログの保持上限**: `DevServerService` はログを約200万文字（`String.length` 基準＝UTF-16コードユニット数。日本語ログでは実メモリはこれより大きい）まで保持し、超えたら約150万文字まで古い側を行頭で切り落として `[... 古いログは省略されました ...]` を先頭に置く。毎チャンク切り詰めると保持分まるごとのコピーが走るため、切り落とし先を別に設けて頻度を落としている
