@@ -166,19 +166,24 @@ function attachSession(deps: StartTaskDeps, provider: AgentProvider, taskId: str
   })
 }
 
-export function createStartTaskFn(deps: StartTaskDeps): StartTaskFn {
-  // 起動前チェック（codex doctor は初回10秒ほどかかる）の間はまだ will_do のままなので、
-  // ボタンの連打や MCP との同時起動で同じタスクに PTY が2本立たないよう、起動中のタスクを覚えておく
-  const starting = new Set<string>()
-  return async (taskId: string, launchMode?: LaunchMode, model?: ClaudeModel, options?: StartTaskOptions) => {
-    if (starting.has(taskId)) throw new Error('ALREADY_STARTING')
-    starting.add(taskId)
-    try {
-      await startTaskOnce(deps, taskId, launchMode, model, options)
-    } finally {
-      starting.delete(taskId)
-    }
+// 起動前チェック（codex doctor は初回10秒ほどかかる）の間はまだ status が変わらないので、
+// ボタンの連打や MCP との同時起動で同じタスクに PTY が2本立たないよう、起動・再開中のタスクを覚えておく。
+// 起動と再開で共有するのは、片方の最中にもう片方が走っても同じことが起きるため
+const launching = new Set<string>()
+
+async function withLaunchGuard(taskId: string, fn: () => Promise<void>): Promise<void> {
+  if (launching.has(taskId)) throw new Error('ALREADY_STARTING')
+  launching.add(taskId)
+  try {
+    await fn()
+  } finally {
+    launching.delete(taskId)
   }
+}
+
+export function createStartTaskFn(deps: StartTaskDeps): StartTaskFn {
+  return (taskId: string, launchMode?: LaunchMode, model?: ClaudeModel, options?: StartTaskOptions) =>
+    withLaunchGuard(taskId, () => startTaskOnce(deps, taskId, launchMode, model, options))
 }
 
 async function startTaskOnce(
@@ -288,7 +293,7 @@ async function startTaskOnce(
 }
 
 export function registerClaudeHandlers(deps: StartTaskDeps, startTask: StartTaskFn): void {
-  const { claudeService, taskService, gitService, agentRegistry, getWindow, getSettings } = deps
+  const { agentRegistry } = deps
 
   // モデル一覧はエージェントに従属する（未指定は claude）
   ipcMain.handle('claude:list-models', (_, agentId?: AgentId) => agentRegistry.get(agentId).listModels())
@@ -314,97 +319,109 @@ export function registerClaudeHandlers(deps: StartTaskDeps, startTask: StartTask
       { taskId, cols, rows, launchMode, model }: { taskId: string; cols?: number; rows?: number; launchMode?: LaunchMode; model?: ClaudeModel }
     ) => {
       try {
-        const tasks = taskService.list()
-        const task = tasks.find((t) => t.id === taskId)
-        if (!task) {
-          throw new Error(`Task not found: ${taskId}`)
-        }
-
-        const sessionId = 'sessionId' in task ? (task as { sessionId?: string }).sessionId : undefined
-        if (!sessionId) {
-          throw new Error('NO_SESSION_ID')
-        }
-
-        const provider = agentRegistry.get(task.agent)
-        await ensureAgentReady(provider)
-
-        const settings = getSettings()
-        let resolvedWorkdir = ''
-        let assignedPane = task.pane
-
-        if (task.type === 'chore' && 'directory' in task) {
-          resolvedWorkdir = expandPath(task.directory)
-        } else if (task.type === 'orchestrate') {
-          // orchestrate はペインを占有しない。起動時と同じ先頭ペインのパスで再開する
-          // （claude --resume は起動ディレクトリでセッションを検索するため）
-          const repoId = 'repoId' in task ? (task as { repoId?: string }).repoId : undefined
-          const repo = repoId ? settings.repos.find((r) => r.id === repoId) : settings.repos[0]
-          resolvedWorkdir = expandPath(repo?.panes[0]?.path ?? homedir())
-          assignedPane = ''
-        } else {
-          const repoId = 'repoId' in task ? task.repoId : undefined
-          const repo = repoId
-            ? settings.repos.find((r) => r.id === repoId)
-            : settings.repos[0]
-          if (!repo) {
-            throw new Error('NO_REPO_ASSIGNED')
-          }
-          // 同一リポジトリ内のdoingタスクのみで占有判定（別リポジトリの同名paneを除外）
-          // repoId未設定のタスクはrepos[0]に属するとみなす（MCP経由作成タスクの互換性）
-          const occupiedPaneIds = new Set(
-            tasks
-              .filter((t) => t.id !== taskId && t.status === 'doing' && t.pane &&
-                (('repoId' in t ? (t as { repoId?: string }).repoId : undefined) ?? settings.repos[0]?.id) === repo.id)
-              .map((t) => t.pane)
-          )
-          // セッション再開時は元のpaneを優先（claude --resume は起動ディレクトリでセッションを検索するため）
-          const originalPaneConfig = task.pane
-            ? repo.panes.find((p) => p.id === task.pane)
-            : null
-          if (originalPaneConfig) {
-            if (occupiedPaneIds.has(originalPaneConfig.id)) {
-              throw new Error('PANE_CONFLICT')
-            }
-            assignedPane = originalPaneConfig.id
-            resolvedWorkdir = expandPath(originalPaneConfig.path)
-          } else {
-            const freePaneConfig = repo.panes.find((p) => !occupiedPaneIds.has(p.id))
-            if (!freePaneConfig) {
-              throw new Error('NO_FREE_PANE')
-            }
-            assignedPane = freePaneConfig.id
-            resolvedWorkdir = expandPath(freePaneConfig.path)
-          }
-        }
-
-        if ('branch' in task && task.branch) {
-          const baseBranch = 'baseBranch' in task ? task.baseBranch : undefined
-          await gitService.checkout(resolvedWorkdir, task.branch, baseBranch)
-        }
-
-        taskService.update(taskId, { status: 'doing', pane: assignedPane })
-
-        try {
-          getWindow()?.webContents.send('terminal:reset', taskId)
-
-          const effectiveLaunchMode = resolveLaunchMode(launchMode, task.type === 'research', settings)
-          taskService.update(taskId, { lastLaunchMode: effectiveLaunchMode, lastModel: model })
-          claudeService.start(taskId, resolvedWorkdir, provider, {
-            launchMode: effectiveLaunchMode,
-            model,
-            cols,
-            rows,
-            resumeSessionId: sessionId,
-          })
-
-          attachSession(deps, provider, taskId, resolvedWorkdir)
-        } catch (startError) {
-          taskService.update(taskId, { status: 'done' })
-          throw startError
-        }
+        await withLaunchGuard(taskId, () => resumeTaskOnce(deps, taskId, cols, rows, launchMode, model))
       } catch (error) {
         throw new Error(`Failed to resume agent: ${(error as Error).message}`)
       }
     }
   )
+}
+
+async function resumeTaskOnce(
+  deps: StartTaskDeps,
+  taskId: string,
+  cols?: number,
+  rows?: number,
+  launchMode?: LaunchMode,
+  model?: ClaudeModel
+): Promise<void> {
+  const { claudeService, taskService, gitService, agentRegistry, getWindow, getSettings } = deps
+  const tasks = taskService.list()
+  const task = tasks.find((t) => t.id === taskId)
+  if (!task) {
+    throw new Error(`Task not found: ${taskId}`)
+  }
+
+  const sessionId = 'sessionId' in task ? (task as { sessionId?: string }).sessionId : undefined
+  if (!sessionId) {
+    throw new Error('NO_SESSION_ID')
+  }
+
+  const provider = agentRegistry.get(task.agent)
+  await ensureAgentReady(provider)
+
+  const settings = getSettings()
+  let resolvedWorkdir = ''
+  let assignedPane = task.pane
+
+  if (task.type === 'chore' && 'directory' in task) {
+    resolvedWorkdir = expandPath(task.directory)
+  } else if (task.type === 'orchestrate') {
+    // orchestrate はペインを占有しない。起動時と同じ先頭ペインのパスで再開する
+    // （claude --resume は起動ディレクトリでセッションを検索するため）
+    const repoId = 'repoId' in task ? (task as { repoId?: string }).repoId : undefined
+    const repo = repoId ? settings.repos.find((r) => r.id === repoId) : settings.repos[0]
+    resolvedWorkdir = expandPath(repo?.panes[0]?.path ?? homedir())
+    assignedPane = ''
+  } else {
+    const repoId = 'repoId' in task ? task.repoId : undefined
+    const repo = repoId
+      ? settings.repos.find((r) => r.id === repoId)
+      : settings.repos[0]
+    if (!repo) {
+      throw new Error('NO_REPO_ASSIGNED')
+    }
+    // 同一リポジトリ内のdoingタスクのみで占有判定（別リポジトリの同名paneを除外）
+    // repoId未設定のタスクはrepos[0]に属するとみなす（MCP経由作成タスクの互換性）
+    const occupiedPaneIds = new Set(
+      tasks
+        .filter((t) => t.id !== taskId && t.status === 'doing' && t.pane &&
+          (('repoId' in t ? (t as { repoId?: string }).repoId : undefined) ?? settings.repos[0]?.id) === repo.id)
+        .map((t) => t.pane)
+    )
+    // セッション再開時は元のpaneを優先（claude --resume は起動ディレクトリでセッションを検索するため）
+    const originalPaneConfig = task.pane
+      ? repo.panes.find((p) => p.id === task.pane)
+      : null
+    if (originalPaneConfig) {
+      if (occupiedPaneIds.has(originalPaneConfig.id)) {
+        throw new Error('PANE_CONFLICT')
+      }
+      assignedPane = originalPaneConfig.id
+      resolvedWorkdir = expandPath(originalPaneConfig.path)
+    } else {
+      const freePaneConfig = repo.panes.find((p) => !occupiedPaneIds.has(p.id))
+      if (!freePaneConfig) {
+        throw new Error('NO_FREE_PANE')
+      }
+      assignedPane = freePaneConfig.id
+      resolvedWorkdir = expandPath(freePaneConfig.path)
+    }
+  }
+
+  if ('branch' in task && task.branch) {
+    const baseBranch = 'baseBranch' in task ? task.baseBranch : undefined
+    await gitService.checkout(resolvedWorkdir, task.branch, baseBranch)
+  }
+
+  taskService.update(taskId, { status: 'doing', pane: assignedPane })
+
+  try {
+    getWindow()?.webContents.send('terminal:reset', taskId)
+
+    const effectiveLaunchMode = resolveLaunchMode(launchMode, task.type === 'research', settings)
+    taskService.update(taskId, { lastLaunchMode: effectiveLaunchMode, lastModel: model })
+    claudeService.start(taskId, resolvedWorkdir, provider, {
+      launchMode: effectiveLaunchMode,
+      model,
+      cols,
+      rows,
+      resumeSessionId: sessionId,
+    })
+
+    attachSession(deps, provider, taskId, resolvedWorkdir)
+  } catch (startError) {
+    taskService.update(taskId, { status: 'done' })
+    throw startError
+  }
 }

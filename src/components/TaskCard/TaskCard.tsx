@@ -119,6 +119,8 @@ type SplitButtonProps = {
   label: string
   disabled?: boolean
   disabledTitle?: string
+  /** 起動前チェック中。押せなくして「起動中...」と出す */
+  busy?: boolean
   colorClass: string
   defaultMode: LaunchMode
   modes: readonly LaunchMode[]
@@ -127,7 +129,8 @@ type SplitButtonProps = {
   onKeyDown: (e: React.KeyboardEvent) => void
 }
 
-function SplitButton({ label, disabled, disabledTitle, colorClass, defaultMode, modes, models, onLaunch, onKeyDown }: SplitButtonProps) {
+function SplitButton({ label, disabled: disabledProp, disabledTitle, busy, colorClass, defaultMode, modes, models, onLaunch, onKeyDown }: SplitButtonProps) {
+  const disabled = disabledProp || busy
   const [selectedMode, setSelectedMode] = useState<LaunchMode>(defaultMode)
   const [selectedModel, setSelectedModel] = useState<ClaudeModel>('default')
   const modelOptions: ClaudeModel[] = ['default', ...models]
@@ -145,10 +148,10 @@ function SplitButton({ label, disabled, disabledTitle, colorClass, defaultMode, 
           onClick={disabled ? undefined : () => onLaunch(selectedMode, selectedModel)}
           onKeyDown={onKeyDown}
           disabled={disabled}
-          title={disabled ? disabledTitle : undefined}
+          title={busy ? '起動前の確認をしています' : disabled ? disabledTitle : undefined}
           className={`px-3 py-1 rounded-l text-xs font-medium ${base}`}
         >
-          {label}（{selectedMode}）
+          {busy ? '起動中...' : `${label}（${selectedMode}）`}
         </button>
         <DropdownSelect
           value={selectedMode}
@@ -252,6 +255,9 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
   const isHighlighted = isTerminalOpen && activeTaskId === task.id
 
   const [startError, setStartError] = useState<string | null>(null)
+  // 起動前チェック（codex doctor は初回10秒ほどかかる）の間、ボタンを押せなくする。
+  // 何も出ないと押せていないように見えて、もう一度押されてしまう
+  const [launching, setLaunching] = useState(false)
   const [showDismissConfirm, setShowDismissConfirm] = useState(false)
 
   const depTask = task.depends_on ? tasks.find((t) => t.id === task.depends_on) : null
@@ -259,15 +265,23 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
   const paneBlocked = task.type !== 'chore' && task.type !== 'orchestrate' && !hasFreePane
   const effectiveDefaultMode: LaunchMode = task.type === 'research' ? 'plan' : defaultLaunchMode
 
-  const handleStart = async (launchMode?: LaunchMode, model?: ClaudeModel) => {
+  const launch = async (run: () => Promise<void>) => {
     setStartError(null)
+    setLaunching(true)
     try {
-      await startTask(task.id, launchMode, model)
+      await run()
       openTerminal(task.id)
     } catch (err) {
-      setStartError((err as Error).message)
+      const message = (err as Error).message
+      // 別の経路（MCP など）で起動中のときは、そちらの結果を待てばよいのでエラーにしない
+      if (!message.includes('ALREADY_STARTING')) setStartError(message)
+    } finally {
+      setLaunching(false)
     }
   }
+
+  const handleStart = (launchMode?: LaunchMode, model?: ClaudeModel) =>
+    launch(() => startTask(task.id, launchMode, model))
 
   const handleComplete = async () => {
     await updateTask(task.id, { status: 'done', completedAt: new Date().toISOString() })
@@ -290,15 +304,8 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
 
   const isDismissable = task.type === 'review' && 'url' in task && !!task.url
 
-  const handleResume = async (launchMode?: LaunchMode, model?: ClaudeModel) => {
-    setStartError(null)
-    try {
-      await resumeTask(task.id, launchMode, model)
-      openTerminal(task.id)
-    } catch (err) {
-      setStartError((err as Error).message)
-    }
-  }
+  const handleResume = (launchMode?: LaunchMode, model?: ClaudeModel) =>
+    launch(() => resumeTask(task.id, launchMode, model))
 
   const openLink = (url: string) => {
     window.api.shell.openExternal(url)
@@ -384,6 +391,7 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
               <SplitButton
                 label="開始"
                 disabled={depBlocked || paneBlocked}
+                busy={launching}
                 disabledTitle={depBlocked ? '依存タスクが未完了です' : paneBlocked ? '空きペインがありません' : undefined}
                 colorClass="bg-blue-600 hover:bg-blue-700 text-white"
                 defaultMode={effectiveDefaultMode}
@@ -634,6 +642,7 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
                 <SplitButton
                   label="再開"
                   disabled={paneBlocked}
+                  busy={launching}
                   disabledTitle="空きペインがありません"
                   colorClass="bg-indigo-600 hover:bg-indigo-700 text-white"
                   defaultMode={effectiveDefaultMode}
