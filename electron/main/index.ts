@@ -349,6 +349,13 @@ app.whenReady().then(() => {
   })
   // 閾値判定はコンテキスト更新に相乗りする（Status Line Hook 経由が主系）
   claudeService.onContextUpdate((info) => rotationService?.onContextUpdate(info))
+  // コンテキスト使用量を DB とレンダラーに流す。起動のたびに購読すると再起動・再開のたびに
+  // 購読が積み上がり、同じ更新が回数分だけ DB 書き込みとレンダラー送信を繰り返すため、ここで1本だけ持つ
+  claudeService.onContextUpdate((info) => {
+    taskService.update(info.taskId, { contextUsed: info.used, contextLimit: info.limit })
+    const win = getWindow()
+    if (win && !win.isDestroyed()) win.webContents.send('claude:context-update', info)
+  })
 
   // タスクが done になったら Claude セッションを確実に終了させる。
   // 完了経路は UI の完了ボタン / 通知の「承認して完了」/ MCP の update_task と複数あるため、

@@ -123,9 +123,9 @@ async function ensureAgentReady(provider: AgentProvider): Promise<void> {
   if (!readiness.ok) throw new Error(`AGENT_NOT_READY: ${readiness.reason}`)
 }
 
-// 起動・再開に共通する後処理（完了通知・PID 記録・PTY 出力とコンテキストのレンダラー転送）
+// 起動・再開に共通する後処理（完了通知・PID 記録・PTY 出力のレンダラー転送）
 function attachSession(deps: StartTaskDeps, provider: AgentProvider, taskId: string, workdir: string): void {
-  const { claudeService, taskService, terminalService, getWindow, getSettings, stopHookService } = deps
+  const { taskService, terminalService, getWindow, getSettings, stopHookService } = deps
 
   if (stopHookService) {
     // Set 化により登録が積み上がるため、起動のたびに前回分を破棄する
@@ -163,14 +163,6 @@ function attachSession(deps: StartTaskDeps, provider: AgentProvider, taskId: str
   terminalService.onData(taskId, (data) => {
     const win = getWindow()
     if (win && !win.isDestroyed()) win.webContents.send('terminal:data', { taskId, data })
-  })
-
-  claudeService.onContextUpdate((info) => {
-    if (info.taskId === taskId) {
-      taskService.update(taskId, { contextUsed: info.used, contextLimit: info.limit })
-      const win = getWindow()
-      if (win && !win.isDestroyed()) win.webContents.send('claude:context-update', info)
-    }
   })
 }
 
