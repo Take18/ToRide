@@ -2,8 +2,30 @@ import type { TerminalService } from './TerminalService'
 import type { ContextLineService } from './ContextLineService'
 import type { ClaudeModel, ContextInfo, LaunchMode } from '../../../src/types/ipc'
 import type { NotifyInput } from './NotificationService'
+import type { AgentProvider } from '../agents/types'
+
+// ANSIエスケープシーケンスと CR を除去する
+function stripAnsi(data: string): string {
+  return data
+    .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')             // CSI sequences
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')   // OSC (BEL or ST terminator)
+    .replace(/\x1b[()][AB012]/g, '')                       // charset sequences
+    .replace(/\r/g, '')                                    // CR
+}
 
 export type ContextUpdateCallback = (info: ContextInfo) => void
+
+export type AgentStartOptions = {
+  prompt?: string
+  launchMode?: LaunchMode
+  model?: ClaudeModel
+  cols?: number
+  rows?: number
+  /** presetSessionId のエージェントで、起動前に採番したID */
+  sessionId?: string
+  /** 指定時は新規起動ではなく再開 */
+  resumeSessionId?: string
+}
 
 export class ClaudeService {
   private terminalService: TerminalService
@@ -35,27 +57,24 @@ export class ClaudeService {
     })
   }
 
-  start(taskId: string, workdir: string, prompt?: string, launchMode?: LaunchMode, cols?: number, rows?: number, sessionId?: string, resumeSessionId?: string, model?: ClaudeModel): void {
-    this.terminalService.start(taskId, workdir, cols ?? 120, rows ?? 30, { CLAUDE_TASK_ID: taskId })
-    let claudeArgs = ''
-    if (launchMode === 'bypass') {
-      claudeArgs += ' --dangerously-skip-permissions'
-    } else if (launchMode === 'auto') {
-      claudeArgs += ' --permission-mode auto'
-    } else if (launchMode === 'plan') {
-      claudeArgs += ' --permission-mode plan'
-    }
-    if (model && model !== 'default') claudeArgs += ` --model ${model}`
-    if (resumeSessionId) claudeArgs += ` --resume ${resumeSessionId}`
-    else if (sessionId) claudeArgs += ` --session-id ${sessionId}`
-    const claudeCmd = `claude${claudeArgs}\n`
-    this.terminalService.write(taskId, claudeCmd)
+  start(taskId: string, workdir: string, provider: AgentProvider, opts: AgentStartOptions = {}): void {
+    const { prompt, launchMode, model, cols, rows, sessionId, resumeSessionId } = opts
+    const launch = { taskId, launchMode, model, sessionId }
+    const { command, env } = resumeSessionId
+      ? provider.buildResumeCommand(resumeSessionId, launch)
+      : provider.buildCommand(launch)
+    this.terminalService.start(taskId, workdir, cols ?? 120, rows ?? 30, { ...env, TORIDE_TASK_ID: taskId })
+    this.terminalService.write(taskId, `${command}\n`)
 
-    if (!resumeSessionId && prompt) {
+    if (!resumeSessionId && prompt && provider.capabilities.initialPrompt === 'inject') {
       let injected = false
+      // injectGuard の画面（フォルダ信頼確認など）が出ている間は true。注入の Enter で誤って選択させない
+      let blocked = false
+      let screen = ''
+      const guard = provider.injectGuard
 
       const tryInject = () => {
-        if (injected || !this.terminalService.hasSession(taskId)) return
+        if (injected || blocked || !this.terminalService.hasSession(taskId)) return
         injected = true
         unsubReady()
         // テキストと Enter を分けて送ることで TUI がテキストを input field に
@@ -68,16 +87,39 @@ export class ClaudeService {
         }, 200)
       }
 
-      // Claude Code が TUI をレンダリングして入力待ちになると bracketed paste mode を有効化する
-      // \x1b[?2004h を検知したタイミングが inject の最適タイミング
       const unsubReady = this.terminalService.onData(taskId, (data: string) => {
         if (injected) return
+        if (guard) {
+          screen = (screen + stripAnsi(data).replace(/\s+/g, '')).slice(-4000)
+          if (!blocked && guard.blockedBy.test(screen)) {
+            blocked = true
+            // 解除の判定はダイアログより後の出力だけで行う
+            screen = ''
+            this.notify?.({
+              category: 'session',
+              level: 'warning',
+              title: '入力待ち',
+              body: guard.notice,
+              navigation: { type: 'task', taskId },
+            })
+            return
+          }
+          if (blocked && guard.unblockedBy.test(screen)) {
+            blocked = false
+            // ダイアログの選択を動かしたときの再描画が残っていると、次のチャンクで再びブロックしてしまう
+            screen = ''
+            setTimeout(tryInject, 1000)
+            return
+          }
+        }
+        // TUI をレンダリングして入力待ちになると bracketed paste mode を有効化する
+        // \x1b[?2004h を検知したタイミングが inject の最適タイミング
         if (data.includes('\x1b[?2004h')) {
           setTimeout(tryInject, 500)
         }
       })
 
-      // フォールバック: 12秒以内に検知できなければ強制 inject
+      // フォールバック: 12秒以内に検知できなければ強制 inject（guard の画面が出ている間は見送る）
       setTimeout(tryInject, 12000)
     }
 
@@ -105,12 +147,7 @@ export class ClaudeService {
   }
 
   parseContext(taskId: string, data: string): ContextInfo | null {
-    // ANSIエスケープシーケンスを除去
-    const clean = data
-      .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')               // CSI sequences
-      .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')   // OSC (BEL or ST terminator)
-      .replace(/\x1b[()][AB012]/g, '')                       // charset sequences
-      .replace(/\r/g, '')                                    // CR
+    const clean = stripAnsi(data)
 
     // チャンク境界でパターンが分断されるのを防ぐため直近500文字をバッファリング
     const prev = this.cleanBuffers.get(taskId) ?? ''

@@ -15,6 +15,8 @@ import { StopHookService } from './services/StopHookService'
 import { ContextLineService } from './services/ContextLineService'
 import { McpServerService, type McpUserNotification } from './services/McpServerService'
 import { ModelListService } from './services/ModelListService'
+import { AgentRegistry } from './agents/AgentRegistry'
+import { ClaudeProvider } from './agents/ClaudeProvider'
 import { SlashCommandService } from './services/SlashCommandService'
 import { McpHookService } from './services/McpHookService'
 import { SessionRotationService } from './services/SessionRotationService'
@@ -321,15 +323,19 @@ app.whenReady().then(() => {
       console.error('[contextLineService] PR URL save failed:', err)
     }
   })
-  const startTaskFn = createStartTaskFn({
+  const modelListService = new ModelListService()
+  const agentRegistry = new AgentRegistry([new ClaudeProvider(modelListService)])
+  const startTaskDeps = {
     claudeService,
     taskService,
     gitService,
     terminalService,
+    agentRegistry,
     getWindow,
     getSettings,
     stopHookService,
-  })
+  }
+  const startTaskFn = createStartTaskFn(startTaskDeps)
   rotationService = new SessionRotationService({
     taskService,
     claudeService,
@@ -343,6 +349,13 @@ app.whenReady().then(() => {
   })
   // 閾値判定はコンテキスト更新に相乗りする（Status Line Hook 経由が主系）
   claudeService.onContextUpdate((info) => rotationService?.onContextUpdate(info))
+  // コンテキスト使用量を DB とレンダラーに流す。起動のたびに購読すると再起動・再開のたびに
+  // 購読が積み上がり、同じ更新が回数分だけ DB 書き込みとレンダラー送信を繰り返すため、ここで1本だけ持つ
+  claudeService.onContextUpdate((info) => {
+    taskService.update(info.taskId, { contextUsed: info.used, contextLimit: info.limit })
+    const win = getWindow()
+    if (win && !win.isDestroyed()) win.webContents.send('claude:context-update', info)
+  })
 
   // タスクが done になったら Claude セッションを確実に終了させる。
   // 完了経路は UI の完了ボタン / 通知の「承認して完了」/ MCP の update_task と複数あるため、
@@ -391,17 +404,7 @@ app.whenReady().then(() => {
   registerNotificationHandlers(notificationService)
   registerTerminalHandlers(terminalService, getWindow, stopHookService, rotationService ?? undefined)
   registerGitHandlers(gitService)
-  const modelListService = new ModelListService()
-  registerClaudeHandlers(
-    claudeService,
-    taskService,
-    gitService,
-    terminalService,
-    getWindow,
-    getSettings,
-    stopHookService,
-    modelListService
-  )
+  registerClaudeHandlers(startTaskDeps, startTaskFn)
 
   // スラッシュコマンド／スキル補完
   const slashCommandService = new SlashCommandService()

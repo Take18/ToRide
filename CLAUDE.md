@@ -50,6 +50,10 @@ electron/
       SlashCommandService.ts # スラッシュコマンド・スキルの列挙（補完候補）
       McpHookService.ts   # ~/.claude/settings.json のmcpServers自動管理
       ResidentOrchestratorService.ts # 常駐オーケストレータの起票・起動
+    agents/
+      types.ts            # AgentProvider・AgentCapabilities の型
+      ClaudeProvider.ts   # claude の起動コマンド組み立て・能力宣言・モデル一覧
+      AgentRegistry.ts    # task.agent から provider を引く（未指定は claude）
     plugins/
       PluginRegistry.ts   # プラグインレジストリ
       catalog.ts          # プラグイン一覧（Wrike・GitHub Issue）
@@ -193,7 +197,7 @@ src/
 
 - **一覧**: ベルをクリックするとパネルを開き、新しい順に表示（カテゴリ・レベル・相対時刻つき）。未読はバッジで件数を表示
 - **既読**: 項目ごとの「既読」ボタンと「すべて既読」ボタン。項目本体をクリックすると既読にしたうえで通知クリックと同じ遷移をする
-- **記録対象**: `context`（80%/90%警告）/ `rotation`（保留・停止・中止）/ `devserver`（異常終了）/ `mcp`（`notify_user`）
+- **記録対象**: `context`（80%/90%警告）/ `rotation`（保留・停止・中止）/ `devserver`（異常終了）/ `mcp`（`notify_user`）/ `session`（フォルダ信頼確認などで起動プロンプトの注入を待っている）
 - **記録しないもの**: Stop Hook 由来のタスク完了通知、GitHub PR同期・トークンエラー、手動完了時の完了通知
 - **通知OFF時**: `notificationsEnabled = false` でもデスクトップ通知を出さないだけで履歴には残る
 - **保持**: SQLite の `notifications` テーブルに最大200件。超えた分は古い側から削除
@@ -334,6 +338,9 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **PR URL自動入力のトークン**: `ticket:fetch` の PR URL 経路も `resolveGitHubTokenForUrl()` で解決（未登録ownerは未認証で取得を試み、privateなら404案内）
 - **リポジトリ名の解決**: `utils/repoMap.ts` の `listRepoFullNames()` が基点。`buildRepoFullNameMap()`（repoId解決）と `github:repo-owners`（owner一覧）が共用する
 - **設定エクスポート**: `githubPat` / `githubTokens` は除外
+- **エージェントの抽象化**: 起動コマンド・再開コマンド・起動前チェック・モデル一覧は `AgentProvider`（`electron/main/agents/`）に置き、`ClaudeService.start()` は provider を受け取って PTY を動かすだけにしている。エージェントはタスク作成時に決める属性（`BaseTask.agent`、未指定は `claude`）で、起動ボタンで選ぶのはモードとモデルだけ。能力差は `AgentCapabilities` で宣言し、足りない機能は黙って消さずに画面へ理由を出す前提で使う。Codex CLI 対応の下地で、現時点の provider は `ClaudeProvider` だけ
+- **起動処理は `createStartTaskFn` に1本化**: UI の `claude:start` も MCP の `start_task` もローテーションも同じ関数を通る。完了通知・PID 記録・PTY 出力のレンダラー転送は起動と再開で共通の `attachSession()` にまとめている。コンテキスト使用量の DB 保存とレンダラー送信は index.ts で `claudeService.onContextUpdate` を1本だけ購読して行う（起動のたびに購読すると再起動・再開のたびに積み上がり、同じ更新を回数分だけ流してしまう）
+- **タスクIDの env**: PTY には `TORIDE_TASK_ID` を渡し、インストール済みの古い `stop.sh` / `statusline.sh` のために `CLAUDE_TASK_ID` にも同じ値を入れる。新しく生成するスクリプトは `${TORIDE_TASK_ID:-$CLAUDE_TASK_ID}` で読む
 - **PTY管理**: `Map<taskId, IPty>` でセッションをライフサイクル全体で維持
 - **セッション終了は子孫プロセスまで**: `pty.kill()` はログインシェルにしかシグナルが届かず、claude が起動したバックグラウンドジョブが生き残って完了後も通知を出してくる。`TerminalService.kill()` は kill 前に `ps -eo pid=,ppid=` で子孫PIDを洗い出し（親を先に殺すと reparent されて辿れなくなる）、SIGTERM → 3秒後に生存分へ SIGKILL する。アプリ終了時の `killAll()` は setTimeout が発火しないので猶予なしの SIGKILL
 - **完了時のセッション終了フックは `TaskService` に集約**: done にする経路が UI / 通知 / MCP と複数あるため、`TaskService.onStatusChange` / `onDeleted` を index.ts で1本だけ購読して `stopHook.removeTaskCallback` → `rotation.clear` → `resetContextTracking` → `terminal.kill` を実行する。各呼び出し元に散らすと必ず取りこぼす
@@ -348,6 +355,7 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **resume時のworkdir**: `claude --resume` はcwdでセッションを検索するため、元のpaneのworkdirを使用
 - **orchestrateのpane非占有**: orchestrateタスクは `pane` を空文字にして起動し、ペイン占有判定の対象外（workdirはリポジトリ先頭ペインのパスを借用）
 - **プロンプト注入タイミング**: 固定遅延ではなくTUI起動検知ベースで注入し自動送信
+- **注入を止める画面（injectGuard）**: 初めて開くフォルダでは claude がフォルダ信頼確認を出し、既定の選択肢が「No, exit」になっている。ここに注入の Enter が届くと claude が終了し、タスクが doing のまま止まる。`ClaudeProvider.injectGuard` でダイアログ（`trust this folder`）を検出したら、ウェルカムバナー（`Claude Code vX.Y.Z`）が出るまで注入を見送り、`session` カテゴリで通知する。12秒のフォールバック注入も見送る。ToRide 側で自動的に信頼を選ぶことはしない（信頼するかは人が決める）。照合は ANSI と空白を除いた出力で行い、解除時にもバッファを空にする（選択を動かしたときの再描画が残ると再ブロックするため）
 - **PR URL検出**: ターミナル出力スキャンではなくStatus Line Hookのペイロードから検出
 - **開発サーバーの終了情報**: `DevServerService` が `lastExits: Map<key, DevServerExitInfo>` で直近の終了（code / signal / 時刻 / manual・abnormal / spawn失敗メッセージ）を保持し、`status()` に載せて返す。`start()` 時にクリアするので「今の起動で落ちたか」だけが残る
 - **開発サーバーログの保持上限**: `DevServerService` はログを約200万文字（`String.length` 基準＝UTF-16コードユニット数。日本語ログでは実メモリはこれより大きい）まで保持し、超えたら約150万文字まで古い側を行頭で切り落として `[... 古いログは省略されました ...]` を先頭に置く。毎チャンク切り詰めると保持分まるごとのコピーが走るため、切り落とし先を別に設けて頻度を落としている

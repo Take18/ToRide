@@ -1,4 +1,5 @@
 // タスク型定義（テンプレートリテラル型を除去したシンプルな型）
+import type { AgentId } from './ipc'
 
 export type TaskStatus = 'will_do' | 'doing' | 'done'
 export type TaskType = 'feat' | 'design' | 'review' | 'bugfix' | 'research' | 'chore' | 'orchestrate'
@@ -50,7 +51,8 @@ export type BaseTask = {
   repoId?: string
   title: string
   created_at?: string
-  sessionId?: string  // Claude session ID (for --resume)
+  agent?: AgentId     // 実行エージェント（未指定は 'claude'）
+  sessionId?: string  // エージェントのセッションID（再開に使う）
   prUrl?: string      // GitHub PR URL (auto-detected from terminal output)
   images?: string[]   // 添付画像の保存先パス（userData/task-images 配下）
   rotation?: RotationConfig  // セッションローテーション設定

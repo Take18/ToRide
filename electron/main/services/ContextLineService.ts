@@ -17,13 +17,14 @@ const STATUSLINE_CONTENT = `#!/bin/sh
 # アプリの設定画面から管理できます。
 INPUT=$(cat)
 PORT_FILE="$HOME/.toride/port"
-if [ -z "$CLAUDE_TASK_ID" ] || [ ! -f "$PORT_FILE" ]; then
+TASK_ID="\${TORIDE_TASK_ID:-$CLAUDE_TASK_ID}"
+if [ -z "$TASK_ID" ] || [ ! -f "$PORT_FILE" ]; then
   exit 0
 fi
 PORT=$(cat "$PORT_FILE")
 curl -s --max-time 2 -X POST "http://127.0.0.1:$PORT/context-update" \\
   -H "Content-Type: application/json" \\
-  -d "{\\"taskId\\":\\"$CLAUDE_TASK_ID\\",\\"data\\":$INPUT}" > /dev/null 2>&1 || true
+  -d "{\\"taskId\\":\\"$TASK_ID\\",\\"data\\":$INPUT}" > /dev/null 2>&1 || true
 `
 
 type ClaudeSettings = { statusLine?: unknown; [key: string]: unknown }
