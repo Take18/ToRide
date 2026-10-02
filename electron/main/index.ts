@@ -353,12 +353,18 @@ app.whenReady().then(() => {
     rotationService?.clear(taskId)
     claudeService.resetContextTracking(taskId)
     terminalService.kill(taskId)
+    // 終わったタスクの通知は対処不要なので履歴からも落とす
+    if (notificationService.deleteByTask(taskId)) notificationService.emitUpdated()
   }
   taskService.onStatusChange(({ taskId, to }) => {
     if (to === 'done') endTaskSession(taskId)
   })
   // 実行中のまま削除／アーカイブされた場合もセッションが孤児になる
   taskService.onDeleted((taskId) => endTaskSession(taskId))
+  // アプリ停止中に消えたタスクや、既に done のタスクに紐づく通知を起動時に掃除する
+  notificationService.pruneExcept(
+    taskService.list().filter((t) => t.status !== 'done').map((t) => t.id)
+  )
 
   const NOTIFY_LEVEL_LABEL: Record<McpUserNotification['level'], string> = {
     info: 'お知らせ',

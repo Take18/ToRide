@@ -101,6 +101,39 @@ export class NotificationService {
     this.deps.db.prepare(`DELETE FROM notifications`).run()
   }
 
+  delete(id: string): void {
+    this.deps.db.prepare(`DELETE FROM notifications WHERE id = ?`).run(id)
+  }
+
+  /**
+   * 指定タスクに紐づく通知を削除する。削除があれば true。
+   * 終わったタスクの通知は飛び先も対処の必要もなくなるので、一覧に残すとノイズになる
+   */
+  deleteByTask(taskId: string): boolean {
+    const result = this.deps.db
+      .prepare(`DELETE FROM notifications WHERE json_extract(navigation, '$.taskId') = ?`)
+      .run(taskId)
+    return result.changes > 0
+  }
+
+  /**
+   * 未完了タスク以外に紐づく通知をまとめて削除する（起動時の掃除用）。
+   * アプリ停止中に消えたタスクや、この仕組みより前に done になったタスクの分を拾う
+   */
+  pruneExcept(activeTaskIds: string[]): void {
+    const active = new Set(activeTaskIds)
+    const rows = this.deps.db
+      .prepare(
+        `SELECT id, json_extract(navigation, '$.taskId') AS task_id FROM notifications
+         WHERE json_extract(navigation, '$.taskId') IS NOT NULL`
+      )
+      .all() as Array<{ id: string; task_id: string }>
+    const del = this.deps.db.prepare(`DELETE FROM notifications WHERE id = ?`)
+    this.deps.db.transaction(() => {
+      for (const row of rows) if (!active.has(row.task_id)) del.run(row.id)
+    })()
+  }
+
   private record(input: NotifyInput): NotificationRecord {
     const record: NotificationRecord = {
       id: randomUUID(),

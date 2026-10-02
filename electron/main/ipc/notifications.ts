@@ -14,6 +14,11 @@ export function registerNotificationHandlers(service: NotificationService): void
     service.emitUpdated()
   })
 
+  ipcMain.handle('notifications:delete', async (_, id: string) => {
+    service.delete(id)
+    service.emitUpdated()
+  })
+
   ipcMain.handle('notifications:clear', async () => {
     service.clear()
     service.emitUpdated()
