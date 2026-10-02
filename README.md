@@ -235,7 +235,7 @@ Claude Code が作業を終えると、タスクカードに承認バナーが�
 
 1. アプリ起動時にローカル HTTP サーバーを立ち上げる（ポートは `stopHookPort` 設定、デフォルト 39457）
 2. `~/.toride/port` にポートを書き込む
-3. タスク開始時に `CLAUDE_TASK_ID` 環境変数を注入
+3. タスク開始時に `TORIDE_TASK_ID` 環境変数を注入（旧スクリプト互換のため `CLAUDE_TASK_ID` にも同じ値を入れる）
 4. Claude Code の Stop Hook が完了を検知して HTTP 通知を送信
 5. タスクカードに「Claude が完了しました。承認しますか？」バナーを表示＋デスクトップ通知
 6. ユーザーが「承認」→ `done` に遷移 / 「無視」→ バナーを消してセッション継続
@@ -457,18 +457,19 @@ Stop Hook を使うには、Claude Code 側に hook スクリプトが必要で�
 #!/bin/sh
 # ToRide - Stop Hook
 PORT_FILE="$HOME/.toride/port"
-if [ -z "$CLAUDE_TASK_ID" ] || [ ! -f "$PORT_FILE" ]; then
+TASK_ID="${TORIDE_TASK_ID:-$CLAUDE_TASK_ID}"
+if [ -z "$TASK_ID" ] || [ ! -f "$PORT_FILE" ]; then
   exit 0
 fi
 PORT=$(cat "$PORT_FILE")
 curl -s -X POST "http://127.0.0.1:$PORT/task-done" \
   -H "Content-Type: application/json" \
-  -d "{\"taskId\":\"$CLAUDE_TASK_ID\"}" || true
+  -d "{\"taskId\":\"$TASK_ID\"}" || true
 ```
 
 **動作仕様：**
 
-- `CLAUDE_TASK_ID` が未設定（アプリ管理外のセッション）の場合は何もしない
+- `TORIDE_TASK_ID` と `CLAUDE_TASK_ID` がどちらも未設定（アプリ管理外のセッション）の場合は何もしない
 - アプリが未起動でポートファイルが存在しない場合はスキップ（Claude Code の動作に影響しない）
 - curl が失敗しても `|| true` で hook は常に `exit 0` を返す
 - グローバルインストール（`~/.claude/hooks/stop.sh`）なので全プロジェクトで機能する

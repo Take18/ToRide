@@ -7,7 +7,8 @@ import type { TaskService } from '../services/TaskService'
 import type { GitService } from '../services/GitService'
 import type { TerminalService } from '../services/TerminalService'
 import type { StopHookService } from '../services/StopHookService'
-import type { ModelListService } from '../services/ModelListService'
+import type { AgentRegistry } from '../agents/AgentRegistry'
+import type { AgentProvider } from '../agents/types'
 import type { AppSettings, ClaudeModel, LaunchMode } from '../../../src/types/ipc'
 import type { Task } from '../../../src/types/task'
 
@@ -93,6 +94,7 @@ type StartTaskDeps = {
   taskService: TaskService
   gitService: GitService
   terminalService: TerminalService
+  agentRegistry: AgentRegistry
   getWindow: () => BrowserWindow | null
   getSettings: () => AppSettings
   stopHookService?: StopHookService
@@ -103,6 +105,10 @@ export type StartTaskOptions = {
   skipCheckout?: boolean
   /** 通常の起動プロンプトの末尾に連結する文面（rotation の bootPrompt）。置換ではなく追加 */
   extraPrompt?: string
+  /** タスクの prompt・テンプレートより優先するプロンプト（UI の起動ボタンから渡される） */
+  promptOverride?: string
+  cols?: number
+  rows?: number
 }
 
 export type StartTaskFn = (
@@ -112,12 +118,71 @@ export type StartTaskFn = (
   options?: StartTaskOptions
 ) => Promise<void>
 
+async function ensureAgentReady(provider: AgentProvider): Promise<void> {
+  const readiness = await provider.checkReady()
+  if (!readiness.ok) throw new Error(`AGENT_NOT_READY: ${readiness.reason}`)
+}
+
+// 起動・再開に共通する後処理（完了通知・PID 記録・PTY 出力とコンテキストのレンダラー転送）
+function attachSession(deps: StartTaskDeps, provider: AgentProvider, taskId: string, workdir: string): void {
+  const { claudeService, taskService, terminalService, getWindow, getSettings, stopHookService } = deps
+
+  if (stopHookService) {
+    // Set 化により登録が積み上がるため、起動のたびに前回分を破棄する
+    stopHookService.removeTaskCallback(taskId)
+    stopHookService.onTaskComplete(taskId, async () => {
+      const currentTask = taskService.list().find((t) => t.id === taskId)
+      if (!currentTask || currentTask.status === 'done') return
+      const { notificationsEnabled = true } = getSettings()
+      if (!notificationsEnabled) return
+      const notification = new Notification({
+        title: `${provider.displayName} が完了しました`,
+        body: `「${currentTask.title}」`,
+        actions: [{ type: 'button', text: '承認して完了' }]
+      })
+      notification.on('action', (_, index) => {
+        if (index !== 0) return
+        const t = taskService.list().find((t) => t.id === taskId)
+        if (!t || t.status === 'done') return
+        taskService.update(taskId, { status: 'done', completedAt: new Date().toISOString() })
+        getWindow()?.webContents.send('tasks:updated')
+      })
+      notification.on('click', () => {
+        const win = getWindow()
+        win?.show()
+        win?.focus()
+        win?.webContents.send('navigation:goto', { type: 'task', taskId })
+      })
+      notification.show()
+    })
+  }
+
+  const pid = terminalService.getPid(taskId)
+  if (pid) taskService.update(taskId, { pid, workdir })
+
+  terminalService.onData(taskId, (data) => {
+    const win = getWindow()
+    if (win && !win.isDestroyed()) win.webContents.send('terminal:data', { taskId, data })
+  })
+
+  claudeService.onContextUpdate((info) => {
+    if (info.taskId === taskId) {
+      taskService.update(taskId, { contextUsed: info.used, contextLimit: info.limit })
+      const win = getWindow()
+      if (win && !win.isDestroyed()) win.webContents.send('claude:context-update', info)
+    }
+  })
+}
+
 export function createStartTaskFn(deps: StartTaskDeps): StartTaskFn {
-  const { claudeService, taskService, gitService, terminalService, getWindow, getSettings, stopHookService } = deps
+  const { claudeService, taskService, gitService, agentRegistry, getWindow, getSettings } = deps
   return async (taskId: string, launchMode?: LaunchMode, model?: ClaudeModel, options?: StartTaskOptions) => {
     const tasks = taskService.list()
     const task = tasks.find((t) => t.id === taskId)
     if (!task) throw new Error(`Task not found: ${taskId}`)
+
+    const provider = agentRegistry.get(task.agent)
+    await ensureAgentReady(provider)
 
     const settings = getSettings()
     let resolvedWorkdir = ''
@@ -135,6 +200,8 @@ export function createStartTaskFn(deps: StartTaskDeps): StartTaskFn {
       const repoId = 'repoId' in task ? task.repoId : undefined
       const repo = repoId ? settings.repos.find((r) => r.id === repoId) : settings.repos[0]
       if (!repo) throw new Error('NO_REPO_ASSIGNED')
+      // 同一リポジトリ内のdoingタスクのみで占有判定（別リポジトリの同名paneを除外）
+      // repoId未設定のタスクはrepos[0]に属するとみなす（MCP経由作成タスクの互換性）
       const occupiedPaneIds = new Set(
         tasks
           .filter((t) => t.id !== taskId && t.status === 'doing' && t.pane &&
@@ -148,22 +215,26 @@ export function createStartTaskFn(deps: StartTaskDeps): StartTaskFn {
     }
 
     // rotation 経由の再起動では checkout しない（未コミット変更の破棄は人の判断が必要なため）
+    // checkout に失敗してもステータスを doing にしない
     if (!options?.skipCheckout && 'branch' in task && task.branch) {
       const baseBranch = 'baseBranch' in task ? task.baseBranch : undefined
       await gitService.checkout(resolvedWorkdir, task.branch, baseBranch)
     }
 
+    // 事前チェックが全て通ってからステータス・paneをdoingに変更
     taskService.update(taskId, { status: 'doing', pane: assignedPane })
 
     try {
+      // ターミナルリセットを先にレンダラーへ通知（古い表示を消す）
       getWindow()?.webContents.send('terminal:reset', taskId)
 
       let rawPrompt: string | undefined
       if (task.type === 'orchestrate') {
+        // orchestrate: システムプロンプト + メモリディレクトリ + ミッション説明を結合
         const systemPrompt = settings.orchestrateSystemPrompt ?? DEFAULT_ORCHESTRATE_SYSTEM_PROMPT
         rawPrompt = buildOrchestratePrompt(taskId, systemPrompt, task.prompt)
       } else {
-        rawPrompt = task.prompt || settings.promptTemplates?.[task.type]
+        rawPrompt = options?.promptOverride || task.prompt || settings.promptTemplates?.[task.type]
       }
       const basePrompt = appendImageSection(rawPrompt ? (task.type === 'orchestrate' ? rawPrompt : interpolateTemplate(rawPrompt, task)) : undefined, task)
       // bootPrompt は置換ではなく追加（置換すると orchestrate のシステムプロンプトとメモリ案内が失われる）
@@ -171,218 +242,40 @@ export function createStartTaskFn(deps: StartTaskDeps): StartTaskFn {
         ? [basePrompt, options.extraPrompt].filter(Boolean).join('\n\n')
         : basePrompt
       const effectiveLaunchMode = resolveLaunchMode(launchMode, task.type === 'research', settings)
-      const sessionId = randomUUID()
-      claudeService.start(taskId, resolvedWorkdir, taskPrompt, effectiveLaunchMode, undefined, undefined, sessionId, undefined, model)
+      const sessionId = provider.capabilities.presetSessionId ? randomUUID() : undefined
+      claudeService.start(taskId, resolvedWorkdir, provider, {
+        prompt: taskPrompt,
+        launchMode: effectiveLaunchMode,
+        model,
+        cols: options?.cols,
+        rows: options?.rows,
+        sessionId,
+      })
       taskService.update(taskId, { sessionId, lastLaunchMode: effectiveLaunchMode, lastModel: model })
 
-      if (stopHookService) {
-        // Set 化により登録が積み上がるため、起動のたびに前回分を破棄する
-        stopHookService.removeTaskCallback(taskId)
-        stopHookService.onTaskComplete(taskId, async () => {
-          const currentTask = taskService.list().find((t) => t.id === taskId)
-          if (!currentTask || currentTask.status === 'done') return
-          const { notificationsEnabled = true } = getSettings()
-          if (!notificationsEnabled) return
-          const notification = new Notification({
-            title: 'Claude が完了しました',
-            body: `「${currentTask.title}」`,
-            actions: [{ type: 'button', text: '承認して完了' }]
-          })
-          notification.on('action', (_, index) => {
-            if (index !== 0) return
-            const t = taskService.list().find((t) => t.id === taskId)
-            if (!t || t.status === 'done') return
-            taskService.update(taskId, { status: 'done', completedAt: new Date().toISOString() })
-            getWindow()?.webContents.send('tasks:updated')
-          })
-          notification.on('click', () => {
-            const win = getWindow()
-            win?.show()
-            win?.focus()
-            win?.webContents.send('navigation:goto', { type: 'task', taskId })
-          })
-          notification.show()
-        })
-      }
-
-      const pid = terminalService.getPid(taskId)
-      if (pid) taskService.update(taskId, { pid, workdir: resolvedWorkdir })
-
-      terminalService.onData(taskId, (data) => {
-        const win = getWindow()
-        if (win && !win.isDestroyed()) win.webContents.send('terminal:data', { taskId, data })
-      })
-
-      claudeService.onContextUpdate((info) => {
-        if (info.taskId === taskId) {
-          taskService.update(taskId, { contextUsed: info.used, contextLimit: info.limit })
-          const win = getWindow()
-          if (win && !win.isDestroyed()) win.webContents.send('claude:context-update', info)
-        }
-      })
+      attachSession(deps, provider, taskId, resolvedWorkdir)
     } catch (startError) {
+      // 起動に失敗したらステータスを元に戻す
       taskService.update(taskId, { status: 'will_do' })
       throw startError
     }
   }
 }
 
-export function registerClaudeHandlers(
-  claudeService: ClaudeService,
-  taskService: TaskService,
-  gitService: GitService,
-  terminalService: TerminalService,
-  getWindow: () => BrowserWindow | null,
-  getSettings: () => AppSettings,
-  stopHookService?: StopHookService,
-  modelListService?: ModelListService
-): void {
-  if (modelListService) {
-    ipcMain.handle('claude:list-models', () => modelListService.listModels())
-  }
+export function registerClaudeHandlers(deps: StartTaskDeps, startTask: StartTaskFn): void {
+  const { claudeService, taskService, gitService, agentRegistry, getWindow, getSettings } = deps
+
+  // モデル一覧は今のところ claude 固定（エージェント別の取得は起動UIのエージェント対応と合わせて入れる）
+  ipcMain.handle('claude:list-models', () => agentRegistry.get('claude').listModels())
 
   ipcMain.handle(
     'claude:start',
     async (
       _,
-      { taskId, workdir, prompt, cols, rows, launchMode, model }: { taskId: string; workdir: string; prompt?: string; cols?: number; rows?: number; launchMode?: LaunchMode; model?: ClaudeModel }
+      { taskId, prompt, cols, rows, launchMode, model }: { taskId: string; workdir: string; prompt?: string; cols?: number; rows?: number; launchMode?: LaunchMode; model?: ClaudeModel }
     ) => {
       try {
-        const tasks = taskService.list()
-        const task = tasks.find((t) => t.id === taskId)
-        if (!task) {
-          throw new Error(`Task not found: ${taskId}`)
-        }
-
-        const settings = getSettings()
-        let resolvedWorkdir = workdir
-        let assignedPane = task.pane
-
-        if (task.type === 'chore' && 'directory' in task) {
-          resolvedWorkdir = expandPath(task.directory)
-        } else if (task.type === 'orchestrate') {
-          // orchestrate はコーディネーター役なのでペインを占有しない（workdir だけ先頭ペインから借りる）
-          const repoId = 'repoId' in task ? (task as { repoId?: string }).repoId : undefined
-          const repo = repoId ? settings.repos.find((r) => r.id === repoId) : settings.repos[0]
-          resolvedWorkdir = expandPath(repo?.panes[0]?.path ?? homedir())
-          assignedPane = ''
-        } else {
-          // non-chore: タスクのリポジトリ内の空きペインを自動割り当て
-          const repoId = 'repoId' in task ? task.repoId : undefined
-          const repo = repoId
-            ? settings.repos.find((r) => r.id === repoId)
-            : settings.repos[0]
-          if (!repo) {
-            throw new Error('NO_REPO_ASSIGNED')
-          }
-          // 同一リポジトリ内のdoingタスクのみで占有判定（別リポジトリの同名paneを除外）
-          // repoId未設定のタスクはrepos[0]に属するとみなす（MCP経由作成タスクの互換性）
-          const occupiedPaneIds = new Set(
-            tasks
-              .filter((t) => t.id !== taskId && t.status === 'doing' && t.pane &&
-                (('repoId' in t ? (t as { repoId?: string }).repoId : undefined) ?? settings.repos[0]?.id) === repo.id)
-              .map((t) => t.pane)
-          )
-          const freePaneConfig = repo.panes.find((p) => !occupiedPaneIds.has(p.id))
-          if (!freePaneConfig) {
-            throw new Error('NO_FREE_PANE')
-          }
-          assignedPane = freePaneConfig.id
-          resolvedWorkdir = expandPath(freePaneConfig.path)
-        }
-
-        // Check for branch checkout（失敗してもステータスをdoingにしない）
-        if ('branch' in task && task.branch) {
-          const baseBranch = 'baseBranch' in task ? task.baseBranch : undefined
-          await gitService.checkout(resolvedWorkdir, task.branch, baseBranch)
-        }
-
-        // 事前チェックが全て通ってからステータス・paneをdoingに変更
-        taskService.update(taskId, { status: 'doing', pane: assignedPane })
-
-        try {
-          // ターミナルリセットを先にレンダラーへ通知（古い表示を消す）
-          getWindow()?.webContents.send('terminal:reset', taskId)
-
-          // Start Claude
-          let rawPrompt: string | undefined
-          if (task.type === 'orchestrate') {
-            // orchestrate: システムプロンプト + メモリディレクトリ + ミッション説明を結合
-            const systemPrompt = settings.orchestrateSystemPrompt ?? DEFAULT_ORCHESTRATE_SYSTEM_PROMPT
-            rawPrompt = buildOrchestratePrompt(taskId, systemPrompt, task.prompt)
-          } else {
-            rawPrompt = prompt || task.prompt || settings.promptTemplates?.[task.type]
-          }
-          const taskPrompt = appendImageSection(rawPrompt ? (task.type === 'orchestrate' ? rawPrompt : interpolateTemplate(rawPrompt, task)) : undefined, task)
-          const effectiveLaunchMode = resolveLaunchMode(launchMode, task.type === 'research', settings)
-          const sessionId = randomUUID()
-          claudeService.start(taskId, resolvedWorkdir, taskPrompt, effectiveLaunchMode, cols, rows, sessionId, undefined, model)
-          taskService.update(taskId, { sessionId, lastLaunchMode: effectiveLaunchMode, lastModel: model })
-
-          // Stop Hook: タスク完了通知コールバック登録（自動遷移しない）
-          if (stopHookService) {
-            // Set 化により登録が積み上がるため、起動のたびに前回分を破棄する
-            stopHookService.removeTaskCallback(taskId)
-            stopHookService.onTaskComplete(taskId, async () => {
-              const currentTask = taskService.list().find((t) => t.id === taskId)
-              if (!currentTask || currentTask.status === 'done') return
-              const { notificationsEnabled = true } = getSettings()
-              if (!notificationsEnabled) return
-
-              const notification = new Notification({
-                title: 'Claude が完了しました',
-                body: `「${currentTask.title}」`,
-                actions: [{ type: 'button', text: '承認して完了' }]
-              })
-              notification.on('action', (_, index) => {
-                if (index !== 0) return
-                const t = taskService.list().find((t) => t.id === taskId)
-                if (!t || t.status === 'done') return
-                taskService.update(taskId, { status: 'done', completedAt: new Date().toISOString() })
-                getWindow()?.webContents.send('tasks:updated')
-              })
-              notification.on('click', () => {
-                const win = getWindow()
-                win?.show()
-                win?.focus()
-                win?.webContents.send('navigation:goto', { type: 'task', taskId })
-              })
-              notification.show()
-            })
-          }
-
-          // Record PID
-          const pid = terminalService.getPid(taskId)
-          if (pid) {
-            taskService.update(taskId, { pid, workdir: resolvedWorkdir })
-          }
-
-          // PTYデータをレンダラーに転送
-          terminalService.onData(taskId, (data) => {
-            const win = getWindow()
-            if (win && !win.isDestroyed()) {
-              win.webContents.send('terminal:data', { taskId, data })
-            }
-          })
-
-          // Set up context update forwarding
-          claudeService.onContextUpdate((info) => {
-            if (info.taskId === taskId) {
-              taskService.update(taskId, {
-                contextUsed: info.used,
-                contextLimit: info.limit
-              })
-              const win = getWindow()
-              if (win && !win.isDestroyed()) {
-                win.webContents.send('claude:context-update', info)
-              }
-            }
-          })
-        } catch (startError) {
-          // Claudeの起動に失敗したらステータスを元に戻す
-          taskService.update(taskId, { status: 'will_do' })
-          throw startError
-        }
+        await startTask(taskId, launchMode, model, { promptOverride: prompt, cols, rows })
       } catch (error) {
         throw new Error(`Failed to start Claude: ${(error as Error).message}`)
       }
@@ -406,6 +299,9 @@ export function registerClaudeHandlers(
         if (!sessionId) {
           throw new Error('NO_SESSION_ID')
         }
+
+        const provider = agentRegistry.get(task.agent)
+        await ensureAgentReady(provider)
 
         const settings = getSettings()
         let resolvedWorkdir = ''
@@ -468,63 +364,15 @@ export function registerClaudeHandlers(
 
           const effectiveLaunchMode = resolveLaunchMode(launchMode, task.type === 'research', settings)
           taskService.update(taskId, { lastLaunchMode: effectiveLaunchMode, lastModel: model })
-          claudeService.start(taskId, resolvedWorkdir, undefined, effectiveLaunchMode, cols, rows, undefined, sessionId, model)
-
-          if (stopHookService) {
-            // Set 化により登録が積み上がるため、起動のたびに前回分を破棄する
-            stopHookService.removeTaskCallback(taskId)
-            stopHookService.onTaskComplete(taskId, async () => {
-              const currentTask = taskService.list().find((t) => t.id === taskId)
-              if (!currentTask || currentTask.status === 'done') return
-              const { notificationsEnabled = true } = getSettings()
-              if (!notificationsEnabled) return
-
-              const notification = new Notification({
-                title: 'Claude が完了しました',
-                body: `「${currentTask.title}」`,
-                actions: [{ type: 'button', text: '承認して完了' }]
-              })
-              notification.on('action', (_, index) => {
-                if (index !== 0) return
-                const t = taskService.list().find((t) => t.id === taskId)
-                if (!t || t.status === 'done') return
-                taskService.update(taskId, { status: 'done', completedAt: new Date().toISOString() })
-                getWindow()?.webContents.send('tasks:updated')
-              })
-              notification.on('click', () => {
-                const win = getWindow()
-                win?.show()
-                win?.focus()
-                win?.webContents.send('navigation:goto', { type: 'task', taskId })
-              })
-              notification.show()
-            })
-          }
-
-          const pid = terminalService.getPid(taskId)
-          if (pid) {
-            taskService.update(taskId, { pid, workdir: resolvedWorkdir })
-          }
-
-          terminalService.onData(taskId, (data) => {
-            const win = getWindow()
-            if (win && !win.isDestroyed()) {
-              win.webContents.send('terminal:data', { taskId, data })
-            }
+          claudeService.start(taskId, resolvedWorkdir, provider, {
+            launchMode: effectiveLaunchMode,
+            model,
+            cols,
+            rows,
+            resumeSessionId: sessionId,
           })
 
-          claudeService.onContextUpdate((info) => {
-            if (info.taskId === taskId) {
-              taskService.update(taskId, {
-                contextUsed: info.used,
-                contextLimit: info.limit
-              })
-              const win = getWindow()
-              if (win && !win.isDestroyed()) {
-                win.webContents.send('claude:context-update', info)
-              }
-            }
-          })
+          attachSession(deps, provider, taskId, resolvedWorkdir)
         } catch (startError) {
           taskService.update(taskId, { status: 'done' })
           throw startError

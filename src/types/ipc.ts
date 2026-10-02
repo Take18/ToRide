@@ -22,6 +22,9 @@ export type RepoConfig = {
   panes: PaneConfig[]
 }
 
+// タスクを実行するコーディングエージェント。タスク作成時に決める属性で、未指定は 'claude'
+export type AgentId = 'claude'
+
 // Claude起動モード
 export type LaunchMode = 'normal' | 'auto' | 'bypass' | 'plan'
 

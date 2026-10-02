@@ -15,6 +15,8 @@ import { StopHookService } from './services/StopHookService'
 import { ContextLineService } from './services/ContextLineService'
 import { McpServerService, type McpUserNotification } from './services/McpServerService'
 import { ModelListService } from './services/ModelListService'
+import { AgentRegistry } from './agents/AgentRegistry'
+import { ClaudeProvider } from './agents/ClaudeProvider'
 import { SlashCommandService } from './services/SlashCommandService'
 import { McpHookService } from './services/McpHookService'
 import { SessionRotationService } from './services/SessionRotationService'
@@ -321,15 +323,19 @@ app.whenReady().then(() => {
       console.error('[contextLineService] PR URL save failed:', err)
     }
   })
-  const startTaskFn = createStartTaskFn({
+  const modelListService = new ModelListService()
+  const agentRegistry = new AgentRegistry([new ClaudeProvider(modelListService)])
+  const startTaskDeps = {
     claudeService,
     taskService,
     gitService,
     terminalService,
+    agentRegistry,
     getWindow,
     getSettings,
     stopHookService,
-  })
+  }
+  const startTaskFn = createStartTaskFn(startTaskDeps)
   rotationService = new SessionRotationService({
     taskService,
     claudeService,
@@ -391,17 +397,7 @@ app.whenReady().then(() => {
   registerNotificationHandlers(notificationService)
   registerTerminalHandlers(terminalService, getWindow, stopHookService, rotationService ?? undefined)
   registerGitHandlers(gitService)
-  const modelListService = new ModelListService()
-  registerClaudeHandlers(
-    claudeService,
-    taskService,
-    gitService,
-    terminalService,
-    getWindow,
-    getSettings,
-    stopHookService,
-    modelListService
-  )
+  registerClaudeHandlers(startTaskDeps, startTaskFn)
 
   // スラッシュコマンド／スキル補完
   const slashCommandService = new SlashCommandService()

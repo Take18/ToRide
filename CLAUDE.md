@@ -50,6 +50,10 @@ electron/
       SlashCommandService.ts # スラッシュコマンド・スキルの列挙（補完候補）
       McpHookService.ts   # ~/.claude/settings.json のmcpServers自動管理
       ResidentOrchestratorService.ts # 常駐オーケストレータの起票・起動
+    agents/
+      types.ts            # AgentProvider・AgentCapabilities の型
+      ClaudeProvider.ts   # claude の起動コマンド組み立て・能力宣言・モデル一覧
+      AgentRegistry.ts    # task.agent から provider を引く（未指定は claude）
     plugins/
       PluginRegistry.ts   # プラグインレジストリ
       catalog.ts          # プラグイン一覧（Wrike・GitHub Issue）
@@ -334,6 +338,9 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **PR URL自動入力のトークン**: `ticket:fetch` の PR URL 経路も `resolveGitHubTokenForUrl()` で解決（未登録ownerは未認証で取得を試み、privateなら404案内）
 - **リポジトリ名の解決**: `utils/repoMap.ts` の `listRepoFullNames()` が基点。`buildRepoFullNameMap()`（repoId解決）と `github:repo-owners`（owner一覧）が共用する
 - **設定エクスポート**: `githubPat` / `githubTokens` は除外
+- **エージェントの抽象化**: 起動コマンド・再開コマンド・起動前チェック・モデル一覧は `AgentProvider`（`electron/main/agents/`）に置き、`ClaudeService.start()` は provider を受け取って PTY を動かすだけにしている。エージェントはタスク作成時に決める属性（`BaseTask.agent`、未指定は `claude`）で、起動ボタンで選ぶのはモードとモデルだけ。能力差は `AgentCapabilities` で宣言し、足りない機能は黙って消さずに画面へ理由を出す前提で使う。Codex CLI 対応の下地で、現時点の provider は `ClaudeProvider` だけ
+- **起動処理は `createStartTaskFn` に1本化**: UI の `claude:start` も MCP の `start_task` もローテーションも同じ関数を通る。完了通知・PID 記録・PTY 出力とコンテキストのレンダラー転送は起動と再開で共通の `attachSession()` にまとめている
+- **タスクIDの env**: PTY には `TORIDE_TASK_ID` を渡し、インストール済みの古い `stop.sh` / `statusline.sh` のために `CLAUDE_TASK_ID` にも同じ値を入れる。新しく生成するスクリプトは `${TORIDE_TASK_ID:-$CLAUDE_TASK_ID}` で読む
 - **PTY管理**: `Map<taskId, IPty>` でセッションをライフサイクル全体で維持
 - **セッション終了は子孫プロセスまで**: `pty.kill()` はログインシェルにしかシグナルが届かず、claude が起動したバックグラウンドジョブが生き残って完了後も通知を出してくる。`TerminalService.kill()` は kill 前に `ps -eo pid=,ppid=` で子孫PIDを洗い出し（親を先に殺すと reparent されて辿れなくなる）、SIGTERM → 3秒後に生存分へ SIGKILL する。アプリ終了時の `killAll()` は setTimeout が発火しないので猶予なしの SIGKILL
 - **完了時のセッション終了フックは `TaskService` に集約**: done にする経路が UI / 通知 / MCP と複数あるため、`TaskService.onStatusChange` / `onDeleted` を index.ts で1本だけ購読して `stopHook.removeTaskCallback` → `rotation.clear` → `resetContextTracking` → `terminal.kill` を実行する。各呼び出し元に散らすと必ず取りこぼす

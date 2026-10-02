@@ -2,8 +2,21 @@ import type { TerminalService } from './TerminalService'
 import type { ContextLineService } from './ContextLineService'
 import type { ClaudeModel, ContextInfo, LaunchMode } from '../../../src/types/ipc'
 import type { NotifyInput } from './NotificationService'
+import type { AgentProvider } from '../agents/types'
 
 export type ContextUpdateCallback = (info: ContextInfo) => void
+
+export type AgentStartOptions = {
+  prompt?: string
+  launchMode?: LaunchMode
+  model?: ClaudeModel
+  cols?: number
+  rows?: number
+  /** presetSessionId のエージェントで、起動前に採番したID */
+  sessionId?: string
+  /** 指定時は新規起動ではなく再開 */
+  resumeSessionId?: string
+}
 
 export class ClaudeService {
   private terminalService: TerminalService
@@ -35,23 +48,16 @@ export class ClaudeService {
     })
   }
 
-  start(taskId: string, workdir: string, prompt?: string, launchMode?: LaunchMode, cols?: number, rows?: number, sessionId?: string, resumeSessionId?: string, model?: ClaudeModel): void {
-    this.terminalService.start(taskId, workdir, cols ?? 120, rows ?? 30, { CLAUDE_TASK_ID: taskId })
-    let claudeArgs = ''
-    if (launchMode === 'bypass') {
-      claudeArgs += ' --dangerously-skip-permissions'
-    } else if (launchMode === 'auto') {
-      claudeArgs += ' --permission-mode auto'
-    } else if (launchMode === 'plan') {
-      claudeArgs += ' --permission-mode plan'
-    }
-    if (model && model !== 'default') claudeArgs += ` --model ${model}`
-    if (resumeSessionId) claudeArgs += ` --resume ${resumeSessionId}`
-    else if (sessionId) claudeArgs += ` --session-id ${sessionId}`
-    const claudeCmd = `claude${claudeArgs}\n`
-    this.terminalService.write(taskId, claudeCmd)
+  start(taskId: string, workdir: string, provider: AgentProvider, opts: AgentStartOptions = {}): void {
+    const { prompt, launchMode, model, cols, rows, sessionId, resumeSessionId } = opts
+    const launch = { taskId, launchMode, model, sessionId }
+    const { command, env } = resumeSessionId
+      ? provider.buildResumeCommand(resumeSessionId, launch)
+      : provider.buildCommand(launch)
+    this.terminalService.start(taskId, workdir, cols ?? 120, rows ?? 30, { ...env, TORIDE_TASK_ID: taskId })
+    this.terminalService.write(taskId, `${command}\n`)
 
-    if (!resumeSessionId && prompt) {
+    if (!resumeSessionId && prompt && provider.capabilities.initialPrompt === 'inject') {
       let injected = false
 
       const tryInject = () => {
@@ -68,7 +74,7 @@ export class ClaudeService {
         }, 200)
       }
 
-      // Claude Code が TUI をレンダリングして入力待ちになると bracketed paste mode を有効化する
+      // TUI をレンダリングして入力待ちになると bracketed paste mode を有効化する
       // \x1b[?2004h を検知したタイミングが inject の最適タイミング
       const unsubReady = this.terminalService.onData(taskId, (data: string) => {
         if (injected) return
