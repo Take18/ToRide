@@ -1,4 +1,4 @@
-import type { Task, RuntimeTask, ArchiveEntry, RuntimeTaskState, DistributiveOmit, RotationConfig, RotationHistoryEntry, RotationHoldReason } from './task'
+import type { Task, TaskType, RuntimeTask, ArchiveEntry, RuntimeTaskState, DistributiveOmit, RotationConfig, RotationHistoryEntry, RotationHoldReason } from './task'
 import type { TicketProviderMeta, TicketFetchResult, PluginCatalogEntry } from './plugin'
 
 // pane設定
@@ -23,7 +23,66 @@ export type RepoConfig = {
 }
 
 // タスクを実行するコーディングエージェント。タスク作成時に決める属性で、未指定は 'claude'
-export type AgentId = 'claude'
+export type AgentId = 'claude' | 'codex'
+
+// エージェントごとの能力差。足りない能力は機能を黙って消さず、画面に理由を出すために使う
+export type AgentCapabilities = {
+  /** pty: TUI を PTY で動かす / http: HTTP サーバー経由で操作する（opencode を想定） */
+  driver: 'pty' | 'http'
+  /** セッションIDを起動前に ToRide 側で採番して渡せるか */
+  presetSessionId: boolean
+  /** inject: TUI 起動検知後に入力欄へ書き込む / argument: 起動引数で渡す */
+  initialPrompt: 'inject' | 'argument'
+  /** prompt: 画像のパスをプロンプトに書いて読ませる / argument: 起動引数で添付する */
+  imageInput: 'prompt' | 'argument'
+  /** コンテキスト使用量の取得元 */
+  contextSource: 'statusline' | 'transcript' | 'none'
+  /** セッション中に作成された PR URL を検知できるか */
+  prDetection: boolean
+  /** plan モードへの入り方 */
+  planMode: 'flag' | 'slash' | 'none'
+  /** セッションローテーションに対応しているか */
+  rotation: boolean
+}
+
+// 画面に出すエージェントの情報（agents:list）
+export type AgentInfo = {
+  id: AgentId
+  displayName: string
+  capabilities: AgentCapabilities
+  /** 起動ボタンで選べるモード */
+  launchModes: LaunchMode[]
+}
+
+// 設定画面の Codex 連携セクションに出す状態
+export type CodexStatus = {
+  /** codex コマンドが見つかったか */
+  installed: boolean
+  loggedIn: boolean
+  /** 起動できない理由。起動できるなら undefined */
+  reason?: string
+  /** 登録済みペインごとの信頼状態 */
+  panes: CodexPaneTrust[]
+}
+
+export type CodexPaneTrust = {
+  repoName: string
+  paneId: string
+  path: string
+  /** ~/.codex/config.toml の projects のキー（git のメインリポジトリのルートを realpath にしたもの） */
+  projectKey: string
+  /** trusted / untrusted など config.toml に書かれた値。書かれていなければ undefined */
+  trustLevel?: string
+}
+
+// 「ペインを信頼済みにする」ボタン（codex:trust-panes）の結果
+export type CodexTrustResult = {
+  added: string[]
+  alreadyTrusted: string[]
+  /** trust_level が trusted 以外で書かれているため変更しなかったもの */
+  skipped: { projectKey: string; trustLevel: string }[]
+  error?: string
+}
 
 // Claude起動モード
 export type LaunchMode = 'normal' | 'auto' | 'bypass' | 'plan'
@@ -84,6 +143,8 @@ export type AppSettings = {
   enabledPlugins?: string[]  // 有効なプラグインIDの一覧
   extraPaths?: string[]  // git hooks等の子プロセスに追加するPATHエントリ
   orchestrateSystemPrompt?: string  // orchestrateタスク起動時に先頭に付与するシステムプロンプト
+  defaultAgentId?: AgentId  // タスク作成時の既定エージェント（未設定は claude）
+  agentDefaults?: Partial<Record<TaskType, AgentId>>  // タスクタイプ別の既定エージェント。defaultAgentId より優先
   // セッションローテーションのグローバル既定値。
   // タスク側が未指定のキーだけここにフォールバックする（オブジェクト単位ではなくキー単位）
   rotationDefaults?: Omit<RotationConfig, 'history'>
@@ -201,7 +262,12 @@ export type IpcChannels = {
   // Claude
   'claude:start': [{ taskId: string; workdir: string; prompt?: string; cols?: number; rows?: number; launchMode?: LaunchMode; model?: ClaudeModel }, void]
   'claude:resume': [{ taskId: string; cols?: number; rows?: number; launchMode?: LaunchMode; model?: ClaudeModel }, void]
-  'claude:list-models': [void, string[]]
+  'claude:list-models': [AgentId | undefined, string[]]
+
+  // Agents
+  'agents:list': [void, AgentInfo[]]
+  'codex:status': [{ refresh?: boolean } | undefined, CodexStatus]
+  'codex:trust-panes': [void, CodexTrustResult]
   'claude:list-commands': [string | undefined, SlashCommandInfo[]]
 
   // Dev Server
@@ -323,9 +389,16 @@ export type WindowApi = {
   claude: {
     start: (taskId: string, workdir: string, prompt?: string, cols?: number, rows?: number, launchMode?: LaunchMode, model?: ClaudeModel) => Promise<void>
     resume: (taskId: string, cols?: number, rows?: number, launchMode?: LaunchMode, model?: ClaudeModel) => Promise<void>
-    listModels: () => Promise<string[]>
+    listModels: (agentId?: AgentId) => Promise<string[]>
     listCommands: (workdir?: string) => Promise<SlashCommandInfo[]>
     onContextUpdate: (callback: (info: ContextInfo) => void) => () => void
+  }
+  agents: {
+    list: () => Promise<AgentInfo[]>
+  }
+  codex: {
+    status: (refresh?: boolean) => Promise<CodexStatus>
+    trustPanes: () => Promise<CodexTrustResult>
   }
   devserver: {
     start: (repoId: string, paneId: string, label: string) => Promise<void>

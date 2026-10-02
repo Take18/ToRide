@@ -50,16 +50,20 @@ electron/
       SlashCommandService.ts # スラッシュコマンド・スキルの列挙（補完候補）
       McpHookService.ts   # ~/.claude/settings.json のmcpServers自動管理
       ResidentOrchestratorService.ts # 常駐オーケストレータの起票・起動
+      AgentSessionService.ts # /agent-session エンドポイント（Codex の SessionStart hook からセッションIDを受け取る）
+      CodexConfigService.ts # ~/.codex/config.toml の trust_level 読み書き
     agents/
       types.ts            # AgentProvider・AgentCapabilities の型
       ClaudeProvider.ts   # claude の起動コマンド組み立て・能力宣言・モデル一覧
+      CodexProvider.ts    # codex の起動コマンド組み立て・hook スクリプト・起動前チェック・モデル一覧
+      codexCli.ts         # ログインシェルの PATH で codex を実行するヘルパー
       AgentRegistry.ts    # task.agent から provider を引く（未指定は claude）
     plugins/
       PluginRegistry.ts   # プラグインレジストリ
       catalog.ts          # プラグイン一覧（Wrike・GitHub Issue）
       ticket/             # チケットプラグイン（WrikeTicketPlugin・GitHubIssueTicketPlugin）
     ipc/
-      tasks.ts / terminal.ts / git.ts / claude.ts / devServer.ts / github.ts / notifications.ts
+      tasks.ts / terminal.ts / git.ts / claude.ts / devServer.ts / github.ts / notifications.ts / agents.ts
     utils/path.ts         # パスユーティリティ
   preload/index.ts        # contextBridge でwindow.api公開
 src/
@@ -67,6 +71,8 @@ src/
     task.ts               # Task, RuntimeTask, ArchiveEntry 型
     ipc.ts                # AppSettings, WindowApi, IpcChannels 型
     window.d.ts           # window.api の型宣言
+  utils/
+    agent.ts              # 既定エージェントの解決（resolveDefaultAgent）・未対応機能の一覧
   stores/
     taskStore.ts          # Zustand (tasks, filteredTasks, CRUD actions)
     terminalStore.ts      # Zustand (isOpen, activeTaskId)
@@ -174,6 +180,18 @@ src/
   - `get_rotation_status` はセッションローテーションの状態（使用率・閾値・回数・履歴・保留/停止）を返す。`update_task` の `rotation` で設定を変更できる
   - `dismiss_pr` はレビュー依頼PRの dismiss（PR自動同期の対象外にしてタスクを削除）。`id`（reviewタスクID）か `url`（PR URL）のどちらか一方を指定する。`url` 指定はタスクが無いPRにも先回りで使える
   - `list_dismissed_prs` は dismiss 済みPRを新しい順に返す（`url` / `dismissedAt`）。`url` を渡すと そのPRが dismiss 済みかだけを確認できる。close/merge されたPRは同期時に記録が消えるため、残るのはオープンなPRだけ
+
+### Codex CLI 対応
+
+タスク作成時にエージェントとして Codex を選んだタスクを、Claude のタスクと同じ操作で起動・完了検知・再開できる。コンテキスト表示（#77）とローテーション（#78）は未対応で、画面に理由を出す。
+
+- **エージェントの選択**: タスクフォームで選ぶ（編集も可）。既定は設定の `agentDefaults[type]` → `defaultAgentId` → `claude` の順に引く。MCP の `create_task` は `agent` を受け取り、PR 自動同期と常駐オーケストレータも同じ既定値で起票する
+- **起動ボタン**: モードとモデルの候補をタスクのエージェントに合わせる。Codex のモデルは `codex debug models` の `visibility: "list"` の slug で、取れなければ候補なし（既定モデルで起動）
+- **起動モード**: normal は `-s workspace-write -a on-request`、auto は `--approve-for-me`、bypass は `--dangerously-bypass-approvals-and-sandbox`。plan は引数なしで起動し、起動後に `/plan` を送って切り替えてから本文を送る
+- **完了検知とセッションID**: 起動のたびに `-c` で SessionStart / Stop の hook と MCP（`/mcp`）を渡す。hook は `~/.toride/hooks/codex-hook.sh` を呼び、SessionStart で `/agent-session`、Stop で既存の `/task-done` に POST する。`~/.codex/hooks.json` や `config.toml` には書かない
+- **再開**: SessionStart で保存した `sessionId` があるときだけ再開ボタンを出す。`codex resume <id> -c 'tui.resume_cwd="session"'` で元の cwd で再開する
+- **カード**: Claude 以外のタスクにはエージェント名のバッジを出し、ホバーで使えない機能を示す。Codex の実行中カードはコンテキストメーターの代わりに「未対応（#77 で対応予定）」と出す。PR URL は検知しない
+- **設定画面**: 「エージェント」セクションで既定のエージェントと能力の一覧、「Codex 連携」セクションでログイン状態とペインの信頼状態を出す。「ペインを信頼済みにする」ボタンで `~/.codex/config.toml` に `trust_level = "trusted"` を書く
 
 ### Git 連携
 
@@ -303,6 +321,8 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 | `useAutoMode` | claude起動時に`--permission-mode auto`を付加 |
 | `promptTemplates` | タスクタイプ別プロンプトテンプレート |
 | `orchestrateSystemPrompt` | orchestrateタスク起動時に先頭に付与するシステムプロンプト（未設定時はデフォルト） |
+| `defaultAgentId` | タスク作成時の既定エージェント（未設定は `claude`） |
+| `agentDefaults` | タスクタイプ別の既定エージェント。`defaultAgentId` より優先 |
 | `rotationDefaults` | セッションローテーションのグローバル既定値（enabled / threshold / handoffPath / bootPrompt）。タスク側が未指定のキーだけフォールバック |
 | `rotationHandoffInstruction` | handoffを書かせる指示文のテンプレート（変数: `{used}` `{handoffPath}`） |
 | `residentOrchestrator` | 常駐オーケストレータの内容（repoId / title / prompt は設定画面にUIあり。autoStart / rotation は設定のみ。title・prompt・rotation.bootPromptで `{date}` を展開）。`rotation.enabled` は無視され常に true |
@@ -338,7 +358,7 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **PR URL自動入力のトークン**: `ticket:fetch` の PR URL 経路も `resolveGitHubTokenForUrl()` で解決（未登録ownerは未認証で取得を試み、privateなら404案内）
 - **リポジトリ名の解決**: `utils/repoMap.ts` の `listRepoFullNames()` が基点。`buildRepoFullNameMap()`（repoId解決）と `github:repo-owners`（owner一覧）が共用する
 - **設定エクスポート**: `githubPat` / `githubTokens` は除外
-- **エージェントの抽象化**: 起動コマンド・再開コマンド・起動前チェック・モデル一覧は `AgentProvider`（`electron/main/agents/`）に置き、`ClaudeService.start()` は provider を受け取って PTY を動かすだけにしている。エージェントはタスク作成時に決める属性（`BaseTask.agent`、未指定は `claude`）で、起動ボタンで選ぶのはモードとモデルだけ。能力差は `AgentCapabilities` で宣言し、足りない機能は黙って消さずに画面へ理由を出す前提で使う。Codex CLI 対応の下地で、現時点の provider は `ClaudeProvider` だけ
+- **エージェントの抽象化**: 起動コマンド・再開コマンド・起動前チェック・モデル一覧は `AgentProvider`（`electron/main/agents/`）に置き、`ClaudeService.start()` は provider を受け取って PTY を動かすだけにしている。エージェントはタスク作成時に決める属性（`BaseTask.agent`、未指定は `claude`）で、起動ボタンで選ぶのはモードとモデルだけ。能力差は `AgentCapabilities` で宣言し、足りない機能は黙って消さずに画面へ理由を出す前提で使う。provider は `ClaudeProvider` と `CodexProvider`。起動後に TUI へ送る入力は `buildInitialInput()` が `InjectStep[]`（write / delay / waitFor）で返し、`ClaudeService` はそれを順に実行するだけにしている
 - **起動処理は `createStartTaskFn` に1本化**: UI の `claude:start` も MCP の `start_task` もローテーションも同じ関数を通る。完了通知・PID 記録・PTY 出力のレンダラー転送は起動と再開で共通の `attachSession()` にまとめている。コンテキスト使用量の DB 保存とレンダラー送信は index.ts で `claudeService.onContextUpdate` を1本だけ購読して行う（起動のたびに購読すると再起動・再開のたびに積み上がり、同じ更新を回数分だけ流してしまう）
 - **タスクIDの env**: PTY には `TORIDE_TASK_ID` を渡し、インストール済みの古い `stop.sh` / `statusline.sh` のために `CLAUDE_TASK_ID` にも同じ値を入れる。新しく生成するスクリプトは `${TORIDE_TASK_ID:-$CLAUDE_TASK_ID}` で読む
 - **PTY管理**: `Map<taskId, IPty>` でセッションをライフサイクル全体で維持
@@ -356,6 +376,13 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **orchestrateのpane非占有**: orchestrateタスクは `pane` を空文字にして起動し、ペイン占有判定の対象外（workdirはリポジトリ先頭ペインのパスを借用）
 - **プロンプト注入タイミング**: 固定遅延ではなくTUI起動検知ベースで注入し自動送信
 - **注入を止める画面（injectGuard）**: 初めて開くフォルダでは claude がフォルダ信頼確認を出し、既定の選択肢が「No, exit」になっている。ここに注入の Enter が届くと claude が終了し、タスクが doing のまま止まる。`ClaudeProvider.injectGuard` でダイアログ（`trust this folder`）を検出したら、ウェルカムバナー（`Claude Code vX.Y.Z`）が出るまで注入を見送り、`session` カテゴリで通知する。12秒のフォールバック注入も見送る。ToRide 側で自動的に信頼を選ぶことはしない（信頼するかは人が決める）。照合は ANSI と空白を除いた出力で行い、解除時にもバッファを空にする（選択を動かしたときの再描画が残ると再ブロックするため）
+- **Codex の起動前チェック**: `codex login status` は env の API キーを見ないので、`codex doctor --json` の `checks["auth.credentials"].status` で判定する。doctor は10秒ほどかかるため、通った結果は10分使い回す（通らなかった結果は覚えない）。Codex を使う設定ならアプリ起動直後に一度実行しておく。この間はタスクがまだ will_do なので、`createStartTaskFn` は起動中のタスクIDを覚えて二重起動を `ALREADY_STARTING` で弾く
+- **codex の PATH**: GUI から起動した Electron の PATH には asdf などのシムが入っていない。PTY ではログインシェルが PATH を通すので、起動前チェックとモデル一覧も `$SHELL -ilc` で取った PATH で codex を実行する（`codexCli.ts`）
+- **Codex の自動起動を止める画面**: 起動時のアップデート確認は `-c check_for_update_on_startup=false` で出さない。信頼されていない hook の確認は `--dangerously-bypass-hook-trust` で飛ばす。フォルダ信頼確認は `-c` では消せないため `injectGuard` で検出して `session` 通知を出し、人が選ぶのを待つ（既定の選択肢は「Yes, continue」）
+- **Codex の信頼のキー**: `~/.codex/config.toml` の `projects` は、git 管理下ならメインリポジトリのルート（worktree でもメイン側）を realpath にしたパスがキーになる（実測）。「ペインを信頼済みにする」は無いテーブルを末尾に足すだけで、パースして書き戻さない（コメントと並び順を残すため）。`trust_level` が trusted 以外で書かれているキーは、人が「信頼しない」を選んだ可能性があるので変更しない
+- **Codex へのプロンプトの渡し方**: 改行や引用符がシェルで崩れないよう `~/.toride/prompts/<taskId>.md` に書き、`-- "$(cat <file>; rm -f <file>)"` で渡す。`-i` は値を複数取るので `--` で区切る。画像は `-i` で添付し、プロンプトにパスは書かない（`imageInput: 'argument'`）
+- **Codex の plan モード**: `/plan <本文>` を一度に送ると起動直後は「'/plan' is disabled while a task is in progress」で弾かれる。`/plan` と Enter で切り替え、`Plan mode` の表示を待ってから本文を bracketed paste で送る（改行で送信されないように）。5秒待っても切り替わらなければ本文は送らずに通知する。入力待ちの判定は `\x1b[?2004h` ではなくウェルカムバナー（`OpenAI Codex (v`）で行う（Codex は画面を描く前に `?2004h` を出すため）
+- **Codex の hook のポート**: hook には起動時の env で `TORIDE_PORT` を渡し、無いときだけ `~/.toride/port` を読む。別プロファイルで並走している2号機の hook が普段使いのインスタンスに届くのを防ぐため
 - **PR URL検出**: ターミナル出力スキャンではなくStatus Line Hookのペイロードから検出
 - **開発サーバーの終了情報**: `DevServerService` が `lastExits: Map<key, DevServerExitInfo>` で直近の終了（code / signal / 時刻 / manual・abnormal / spawn失敗メッセージ）を保持し、`status()` に載せて返す。`start()` 時にクリアするので「今の起動で落ちたか」だけが残る
 - **開発サーバーログの保持上限**: `DevServerService` はログを約200万文字（`String.length` 基準＝UTF-16コードユニット数。日本語ログでは実メモリはこれより大きい）まで保持し、超えたら約150万文字まで古い側を行頭で切り落として `[... 古いログは省略されました ...]` を先頭に置く。毎チャンク切り詰めると保持分まるごとのコピーが走るため、切り落とし先を別に設けて頻度を落としている

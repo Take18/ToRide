@@ -7,7 +7,7 @@ import TaskForm from '../components/TaskForm/TaskForm'
 import Toast from '../components/Common/Toast'
 import { useTerminalStore } from '../stores/terminalStore'
 import type { TaskStatus, RuntimeTask } from '../types/task'
-import type { RepoConfig, LaunchMode, ResidentOrchestratorConfig } from '../types/ipc'
+import type { RepoConfig, LaunchMode, ResidentOrchestratorConfig, AgentInfo } from '../types/ipc'
 
 const COLUMNS: { status: TaskStatus; label: string; borderColor: string }[] = [
   { status: 'will_do', label: '未実行', borderColor: 'border-t-gray-500' },
@@ -20,7 +20,9 @@ export default function DashboardPage() {
   const [editingTask, setEditingTask] = useState<RuntimeTask | null>(null)
   const [repos, setRepos] = useState<RepoConfig[]>([])
   const [settingsLaunchMode, setSettingsLaunchMode] = useState<LaunchMode>('normal')
-  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [agents, setAgents] = useState<AgentInfo[]>([])
+  // モデル一覧はエージェントに従属するため、エージェントごとに持つ
+  const [modelsByAgent, setModelsByAgent] = useState<Record<string, string[]>>({})
   const [prSyncing, setPrSyncing] = useState(false)
   const [residentOrchestrator, setResidentOrchestrator] = useState<ResidentOrchestratorConfig | undefined>(undefined)
   const [orchestratorBooting, setOrchestratorBooting] = useState(false)
@@ -98,7 +100,14 @@ export default function DashboardPage() {
       else if (s.useAutoMode) setSettingsLaunchMode('auto')
       else setSettingsLaunchMode('normal')
     })
-    window.api.claude.listModels().then(setAvailableModels).catch(() => {})
+    window.api.agents.list().then((list) => {
+      setAgents(list)
+      for (const agent of list) {
+        window.api.claude.listModels(agent.id)
+          .then((models) => setModelsByAgent((prev) => ({ ...prev, [agent.id]: models })))
+          .catch(() => {})
+      }
+    }).catch(() => {})
   }, [fetchTasks])
 
   useEffect(() => {
@@ -214,7 +223,8 @@ export default function DashboardPage() {
                       task={task}
                       hasFreePane={hasFreePaneForTask(task)}
                       defaultLaunchMode={settingsLaunchMode}
-                      availableModels={availableModels}
+                      agents={agents}
+                      modelsByAgent={modelsByAgent}
                       onEdit={task.status === 'will_do' ? (t) => { setEditingTask(t); setFormOpen(true) } : undefined}
                       onNavigate={handleNavigate}
                     />

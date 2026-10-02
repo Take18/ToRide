@@ -5,6 +5,7 @@ import type { RotationConfig, Task } from '../../../src/types/task'
 import type { TaskService } from './TaskService'
 import type { StartTaskFn } from '../ipc/claude'
 import { expandPath } from '../utils/path'
+import { resolveDefaultAgent } from '../../../src/utils/agent'
 
 const DEFAULT_TITLE = '常駐オーケストレータ {date}'
 /**
@@ -99,6 +100,7 @@ export class ResidentOrchestratorService {
       repoId: config.repoId,
       prompt,
       rotation,
+      agent: resolveDefaultAgent(settings, 'orchestrate'),
     } as Omit<Task, 'id' | 'created_at'>)
     this.deps.notifyTasksUpdated()
     // rotation は常に true なので、代わりに handoffPath の出どころを出す（無音の切り分けに要る）。

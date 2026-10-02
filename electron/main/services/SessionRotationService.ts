@@ -89,6 +89,8 @@ type Deps = {
   startTask: StartTaskFn
   /** 通知の発行と履歴保存（NotificationService.notify） */
   notify: (input: NotifyInput) => void
+  /** タスクのエージェントがローテーションに対応しているか（未指定なら全タスク対応扱い） */
+  supportsRotation?: (task: RuntimeTask) => boolean
 }
 
 /** 空白・改行をすべて除去して照合用に正規化する（TUI の行折り返しを吸収するため） */
@@ -121,8 +123,10 @@ export class SessionRotationService {
   } {
     const d = this.deps.getSettings().rotationDefaults ?? {}
     const t = task.rotation ?? {}
+    // 未対応のエージェントでは設定に関わらず無効（理由は起動時に rotationDisabledReason でカードに出す）
+    const supported = this.deps.supportsRotation?.(task) ?? true
     return {
-      enabled: t.enabled ?? d.enabled ?? false,
+      enabled: supported && (t.enabled ?? d.enabled ?? false),
       threshold: t.threshold ?? d.threshold ?? DEFAULT_THRESHOLD,
       handoffPath: t.handoffPath ?? d.handoffPath,
       bootPrompt: t.bootPrompt ?? d.bootPrompt,
@@ -203,6 +207,7 @@ export class SessionRotationService {
     if (task.status !== 'doing') throw new Error('ROTATION_TASK_NOT_RUNNING')
     const state = this.getState(task)
     if (state.phase !== 'idle') throw new Error('ROTATION_ALREADY_IN_PROGRESS')
+    if (!this.resolveConfig(task).enabled) throw new Error('ROTATION_DISABLED')
     const percent =
       task.contextUsed && task.contextLimit
         ? Math.round((task.contextUsed / task.contextLimit) * 100)
