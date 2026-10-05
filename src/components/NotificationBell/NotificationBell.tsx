@@ -81,6 +81,11 @@ export default function NotificationBell() {
     await refresh()
   }
 
+  const handleDelete = async (id: string): Promise<void> => {
+    await window.api.notifications.delete(id)
+    await refresh()
+  }
+
   const handleClear = async (): Promise<void> => {
     await window.api.notifications.clear()
     await refresh()
@@ -165,15 +170,24 @@ export default function NotificationBell() {
                     {CATEGORY_LABEL[item.category] ?? item.category} ・ {formatRelative(item.createdAt)}
                   </div>
                 </button>
-                {!item.readAt && (
+                <div className="self-start flex items-center gap-1 shrink-0">
+                  {!item.readAt && (
+                    <button
+                      onClick={() => handleMarkRead(item.id)}
+                      title="既読にする"
+                      className="px-1.5 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-[10px] text-gray-300"
+                    >
+                      既読
+                    </button>
+                  )}
                   <button
-                    onClick={() => handleMarkRead(item.id)}
-                    title="既読にする"
-                    className="self-start px-1.5 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-[10px] text-gray-300 shrink-0"
+                    onClick={() => handleDelete(item.id)}
+                    title="削除"
+                    className="px-1.5 py-0.5 rounded hover:bg-gray-700 text-[10px] text-gray-500 hover:text-gray-200"
                   >
-                    既読
+                    ✕
                   </button>
-                )}
+                </div>
               </div>
             ))}
           </div>

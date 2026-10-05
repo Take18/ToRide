@@ -259,6 +259,7 @@ export type IpcChannels = {
   'notifications:list': [void, NotificationRecord[]]
   'notifications:markRead': [string, void]
   'notifications:markAllRead': [void, void]
+  'notifications:delete': [string, void]
   'notifications:clear': [void, void]
 
   // MCP Server
@@ -389,6 +390,7 @@ export type WindowApi = {
     list: () => Promise<NotificationRecord[]>
     markRead: (id: string) => Promise<void>
     markAllRead: () => Promise<void>
+    delete: (id: string) => Promise<void>
     clear: () => Promise<void>
     onUpdated: (callback: () => void) => () => void
   }
