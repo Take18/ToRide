@@ -115,6 +115,8 @@ src/
 - **プロンプト変数チップ**: タスクフォームの変数チップをクリックするとカーソル位置に挿入
 - **スラッシュコマンド補完**: プロンプト入力欄の**先頭**で `/` を打つとコマンド・スキルの候補を表示（↑↓で移動 / Enter・Tab で確定 / Esc で閉じる）
   - 収集元: ユーザー（`~/.claude/commands`・`skills`）/ プロジェクト（`<workdir>/.claude/...`）/ プラグイン（`installed_plugins.json` の installPath 配下）
+  - Codex のタスクでは `$` で skills の候補を出し、確定すると `$スキル名` を挿入する。収集元はプロジェクト（`<workdir>/.agents/skills`）/ ユーザー（`~/.agents/skills`）/ system（`$CODEX_HOME/skills/.system`）で、候補名は frontmatter の `name`
+  - 呼び出す記号と収集元はタスクのエージェントで決まる。設定画面の promptTemplates・orchestrateSystemPrompt は、そのタイプの既定エージェントに合わせる
   - 対象欄: タスクフォームの Prompt・ミッション説明、設定画面の promptTemplates・orchestrateSystemPrompt・bootPrompt
 - **フォルダ選択**: choreタスクのDirectory入力にフォルダ選択ダイアログボタン
 - **編集**: タイプ以外の全フィールドを編集可能
@@ -184,7 +186,7 @@ src/
 
 ### Codex CLI 対応
 
-タスク作成時にエージェントとして Codex を選んだタスクを、Claude のタスクと同じ操作で起動・完了検知・再開できる。ローテーション（#78）は未対応で、画面に理由を出す。
+タスク作成時にエージェントとして Codex を選んだタスクを、Claude のタスクと同じ操作で起動・完了検知・再開できる。セッションローテーションも Claude と同じ条件で動く。
 
 - **エージェントの選択**: タスクフォームで選ぶ（編集も可）。既定は設定の `agentDefaults[type]` → `defaultAgentId` → `claude` の順に引く。MCP の `create_task` は `agent` を受け取り、PR 自動同期と常駐オーケストレータも同じ既定値で起票する
 - **起動ボタン**: モードとモデルの候補をタスクのエージェントに合わせる。Codex のモデルは `codex debug models` の `visibility: "list"` の slug で、取れなければ候補なし（既定モデルで起動）
@@ -238,6 +240,7 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **ガード（原因側）**: 新セッションの最初のターン終了時点の使用率を `baseline` として記録し、`threshold * 0.8` を超えたら自動停止（handoff肥大の検知）。handoffが8KB超なら警告
 - **通知**: rotation有効タスクでは80%/90%通知を抑制。ただし**保留・停止・中止の通知は必ず出す**（無音が「正常」を意味するのを防ぐため）
 - **履歴**: `rotation.history` に回数・時刻・理由を記録。`{rotationCount}` として bootPrompt に展開
+- **Codex**: エコー検証の待ち時間・照合方法は Claude と同じ。Codex 0.154.0 で、200ms 後に handoff パスの末尾がエコーされること、`/model` のピッカー表示中は照合に失敗して保留になることを確かめた。新セッションのIDは起動前に決まらないので、SessionStart hook で届いたときに履歴の `toSessionId` に入れる。Codex の auto compact の既定の閾値はまだ確かめておらず、`model_auto_compact_token_limit` も渡していない。ローテーションの閾値より先に auto compact が走ると、ローテーションは発火しない
 
 ### 常駐オーケストレータ（residentOrchestrator）
 
@@ -400,6 +403,8 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **notify_userのタスク解決**: セッションが自分のタスクIDを知らなくても通知できるよう、`taskTitle` からdoingタスク優先で完全一致→部分一致で逆引きする。解決できなければ通知は出しクリック時はウィンドウフォーカスのみ
 - **モデル一覧**: `/v1/models` から動的取得し、失敗時は opus/sonnet/haiku にフォールバック（ModelListService）
 - **スラッシュコマンド候補のスキャン**: `~/.claude/skills` はシンボリックリンクで貼られることが多く `Dirent.isDirectory()` が false になるため、リンクは `stat` で辿り直す。frontmatter の `description` はブロックスカラー（`|` / `>`）もあるので最初の段落だけ取り出す。SKILL.md は大きいので先頭4KBのみ読む
+- **補完候補の収集元は provider が持つ**: `AgentProvider.commandSources()` が走査するディレクトリを返し、`SlashCommandService` はそれを順に走査するだけにしている。呼び出す記号は `AgentCapabilities.commandTrigger` で宣言する
+- **Codex の補完に組み込みコマンドを出さない理由**: Codex のプロンプトは起動引数で渡し、1通のメッセージとして送られる。このため `/status` などの組み込みコマンドは実行されない。`$スキル名` は起動引数でも展開され、SKILL.md が読み込まれる（0.154.0 で実測）
 - **候補の同名解決**: プロジェクト > ユーザー > プラグインの優先で先勝ち。プラグインは `pluginName:` を名前空間に付け、project スコープのものは workdir がその配下のときだけ含める
 - **ローテーション後のコンテキスト追跡リセット**: `ClaudeService.fireContextUpdate` は単調増加ゲート（`used <= prevMax` を捨てる）を持つため、新セッションの小さい値が全て捨てられる。`resetContextTracking()` を呼ばないと閾値判定が二度と発火しない
 - **StopHookのコールバックは `Map<taskId, Set<cb>>`**: 1タスクに複数の購読者（タスク完了通知 / ローテーションのidle・handoff検知）がいるため。起動のたびに `removeTaskCallback` してから登録し直す（Set化で積み上がるのを防ぐ）

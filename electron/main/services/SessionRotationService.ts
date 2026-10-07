@@ -62,6 +62,11 @@ type TaskState = {
   /** 自前のエコー検証用バッファ（ClaudeService.cleanBuffers は resetContextTracking で消えるため使わない） */
   echoBuffer: string
   unsubEchoBuffer?: () => void
+  /**
+   * 起動前にセッションIDを採番できないエージェント（Codex）で、新セッションのIDを待っているか。
+   * SessionStart hook で届いたら rotation.history の最後の toSessionId に入れる
+   */
+  awaitingSessionId: boolean
 }
 
 export type RotationStatus = {
@@ -351,6 +356,8 @@ export class SessionRotationService {
       return
     }
 
+    // Codex は SessionStart hook が届くまで sessionId が空。先に届いていればここで入り、
+    // まだなら onSessionStarted で埋める
     const next = this.deps.taskService.list().find((t) => t.id === taskId)
     const entry: RotationHistoryEntry = {
       at: new Date().toISOString(),
@@ -371,9 +378,24 @@ export class SessionRotationService {
     const fresh = this.getState(next ?? task)
     fresh.sessionStartedAt = Date.now()
     fresh.phase = 'idle'
+    fresh.awaitingSessionId = !entry.toSessionId
     this.scheduleBaselineMeasurement(taskId, cfg.threshold)
 
     this.notifyTasksUpdated()
+  }
+
+  /** SessionStart hook でセッションIDを受け取ったとき（AgentSessionService から呼ぶ） */
+  onSessionStarted(taskId: string, sessionId: string): void {
+    const state = this.states.get(taskId)
+    if (!state?.awaitingSessionId) return
+    state.awaitingSessionId = false
+    const task = this.deps.taskService.list().find((t) => t.id === taskId)
+    const history = task?.rotation?.history ?? []
+    const last = history[history.length - 1]
+    if (!task || !last || last.toSessionId) return
+    this.deps.taskService.update(taskId, {
+      rotation: { ...(task.rotation ?? {}), history: [...history.slice(0, -1), { ...last, toSessionId: sessionId }] },
+    })
   }
 
   // ---------- baseline 計測（原因側ガード §5.5） ----------
@@ -414,6 +436,7 @@ export class SessionRotationService {
         sessionStartedAt: task.startedAt ? new Date(task.startedAt).getTime() : Date.now(),
         awaitingBaseline: false,
         echoBuffer: '',
+        awaitingSessionId: false,
       }
       this.states.set(task.id, state)
     }
