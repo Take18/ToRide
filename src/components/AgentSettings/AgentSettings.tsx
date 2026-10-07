@@ -34,7 +34,9 @@ const CAPABILITY_ROWS: { label: string; render: (c: AgentCapabilities) => { text
     render: (c) =>
       c.contextSource === 'statusline'
         ? { text: 'Status Line Hook', ok: true }
-        : { text: '未対応（#77 で対応予定）', ok: false },
+        : c.contextSource === 'transcript'
+          ? { text: 'セッションの記録ファイル（rollout）を読む', ok: true }
+          : { text: '未対応', ok: false },
   },
   {
     label: 'PR URL の自動検知',

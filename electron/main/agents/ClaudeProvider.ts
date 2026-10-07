@@ -18,6 +18,7 @@ export class ClaudeProvider implements AgentProvider {
   readonly displayName = 'Claude'
   readonly capabilities = CAPABILITIES
   readonly launchModes: LaunchMode[] = ['normal', 'auto', 'bypass', 'plan']
+  readonly parseStdoutContext = true
   // 初めて開くフォルダでは信頼確認ダイアログが出る。既定の選択肢が「No, exit」なので、
   // ここに注入の Enter が届くと claude が終了してタスクが doing のまま止まる。
   // ダイアログを抜けるとウェルカムバナー（Claude Code vX.Y.Z）が描画される

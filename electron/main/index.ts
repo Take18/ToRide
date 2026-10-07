@@ -13,6 +13,7 @@ import { DismissedPrService, dismissReviewPr } from './services/DismissedPrServi
 import { LocalHttpServer } from './services/LocalHttpServer'
 import { StopHookService } from './services/StopHookService'
 import { ContextLineService } from './services/ContextLineService'
+import { TranscriptContextService } from './services/TranscriptContextService'
 import { McpServerService, type McpUserNotification } from './services/McpServerService'
 import { ModelListService } from './services/ModelListService'
 import { AgentRegistry } from './agents/AgentRegistry'
@@ -54,6 +55,7 @@ let mainWindow: BrowserWindow | null = null
 let devServerServiceInstance: DevServerService | null = null
 let terminalServiceInstance: TerminalService | null = null
 let localHttpServerInstance: LocalHttpServer | null = null
+let transcriptContextServiceInstance: TranscriptContextService | null = null
 let prSyncTimerId: ReturnType<typeof setInterval> | null = null
 
 function getWindow(): BrowserWindow | null {
@@ -306,6 +308,8 @@ app.whenReady().then(() => {
   localHttpServerInstance = localHttpServer
   const stopHookService = new StopHookService(localHttpServer)
   const contextLineService = new ContextLineService(localHttpServer)
+  const transcriptContextService = new TranscriptContextService()
+  transcriptContextServiceInstance = transcriptContextService
   const mcpHookService = new McpHookService()
   // rotationService は startTaskFn に依存し、startTaskFn は claudeService に依存するため、
   // claudeService へは遅延参照のクロージャで渡す（生成順の循環を避ける）
@@ -316,6 +320,7 @@ app.whenReady().then(() => {
     (taskId) => rotationService?.isRotationEnabled(taskId) ?? false,
     (input) => notificationService.notify(input)
   )
+  claudeService.attachContextSource(transcriptContextService)
   contextLineService.onPrDetected(({ taskId, prUrl }) => {
     try {
       // reviewタスクはレビュー対象PRをurlに持つため、検知したPRを紐付けない
@@ -336,7 +341,13 @@ app.whenReady().then(() => {
   agentSessionService.onSession(({ taskId, sessionId, transcriptPath }) => {
     try {
       const task = taskService.list().find((t) => t.id === taskId)
-      if (!task || agentRegistry.get(task.agent).capabilities.presetSessionId) return
+      if (!task) return
+      const { capabilities } = agentRegistry.get(task.agent)
+      // コンテキスト使用量は rollout ファイルから読む（再開でファイルが変わっても、ここで張り直す）
+      if (capabilities.contextSource === 'transcript' && transcriptPath && task.status === 'doing') {
+        transcriptContextService.watch(taskId, transcriptPath)
+      }
+      if (capabilities.presetSessionId) return
       taskService.update(taskId, { sessionId, transcriptPath })
       getWindow()?.webContents.send('tasks:updated')
     } catch (err) {
@@ -352,6 +363,7 @@ app.whenReady().then(() => {
     getWindow,
     getSettings,
     stopHookService,
+    transcriptContextService,
   }
   const startTaskFn = createStartTaskFn(startTaskDeps)
   rotationService = new SessionRotationService({
@@ -384,6 +396,7 @@ app.whenReady().then(() => {
     stopHookService.removeTaskCallback(taskId)
     rotationService?.clear(taskId)
     claudeService.resetContextTracking(taskId)
+    transcriptContextService.stop(taskId)
     terminalService.kill(taskId)
   }
   taskService.onStatusChange(({ taskId, to }) => {
@@ -643,6 +656,7 @@ app.on('will-quit', () => {
   if (prSyncTimerId) clearInterval(prSyncTimerId)
   devServerServiceInstance?.stopAll()
   terminalServiceInstance?.killAll()
+  transcriptContextServiceInstance?.stopAll()
   localHttpServerInstance?.stop()
 })
 
