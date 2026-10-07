@@ -43,6 +43,7 @@ electron/
       LocalHttpServer.ts  # 共有HTTPサーバー（addRoute()で複数エンドポイント登録）
       StopHookService.ts  # Stop Hook管理・/task-doneエンドポイント
       ContextLineService.ts # Status Line Hook管理・/context-updateエンドポイント
+      TranscriptContextService.ts # Codex の rollout ファイルを tail してコンテキスト使用量を取り出す
       SessionRotationService.ts # セッションローテーション（閾値検知・handoff完了検知・再起動）
       McpServerService.ts # MCPサーバー（タスクCRUD・タスク起動・開発サーバー制御ツールを公開）
       NotificationService.ts # デスクトップ通知の発行と通知履歴の保存
@@ -183,14 +184,14 @@ src/
 
 ### Codex CLI 対応
 
-タスク作成時にエージェントとして Codex を選んだタスクを、Claude のタスクと同じ操作で起動・完了検知・再開できる。コンテキスト表示（#77）とローテーション（#78）は未対応で、画面に理由を出す。
+タスク作成時にエージェントとして Codex を選んだタスクを、Claude のタスクと同じ操作で起動・完了検知・再開できる。ローテーション（#78）は未対応で、画面に理由を出す。
 
 - **エージェントの選択**: タスクフォームで選ぶ（編集も可）。既定は設定の `agentDefaults[type]` → `defaultAgentId` → `claude` の順に引く。MCP の `create_task` は `agent` を受け取り、PR 自動同期と常駐オーケストレータも同じ既定値で起票する
 - **起動ボタン**: モードとモデルの候補をタスクのエージェントに合わせる。Codex のモデルは `codex debug models` の `visibility: "list"` の slug で、取れなければ候補なし（既定モデルで起動）
 - **起動モード**: normal は `-s workspace-write -a on-request`、auto は `--approve-for-me`、bypass は `--dangerously-bypass-approvals-and-sandbox`。plan は引数なしで起動し、起動後に `/plan` を送って切り替えてから本文を送る
 - **完了検知とセッションID**: 起動のたびに `-c` で SessionStart / Stop の hook と MCP（`/mcp`）を渡す。hook は `~/.toride/hooks/codex-hook.sh` を呼び、SessionStart で `/agent-session`、Stop で既存の `/task-done` に POST する。`~/.codex/hooks.json` や `config.toml` には書かない
 - **再開**: SessionStart で保存した `sessionId` があるときだけ再開ボタンを出す。`codex resume <id> -c 'tui.resume_cwd="session"'` で元の cwd で再開する
-- **カード**: Claude 以外のタスクにはエージェント名のバッジを出し、ホバーで使えない機能を示す。Codex の実行中カードはコンテキストメーターの代わりに「未対応（#77 で対応予定）」と出す。PR URL は検知しない
+- **カード**: Claude 以外のタスクにはエージェント名のバッジを出し、ホバーで使えない機能を示す。PR URL は検知しない
 - **設定画面**: 「エージェント」セクションで既定のエージェントと能力の一覧、「Codex 連携」セクションでログイン状態とペインの信頼状態を出す。「ペインを信頼済みにする」ボタンで `~/.codex/config.toml` に `trust_level = "trusted"` を書く
 
 ### Git 連携
@@ -203,11 +204,14 @@ src/
 
 ### コンテキストウィンドウ管理
 
-- **トークン使用量表示**: `75,234 / 200,000 tokens` 形式
+- **トークン使用量表示**: `75,234 / 200,000 tokens` 形式。上限が届くまでは `75,234 tokens（上限不明）` と出す（上限はエージェントとモデルで変わるので決め打ちしない）
 - **プログレスバー**: 緑(0〜80%) / 黄(80〜90%) / 赤(90%〜)
 - **デスクトップ通知**: 80%到達時 / 90%到達時 / タスク完了時（通知クリックで関連画面へジャンプ）
 - **リアルタイム更新**: Status Line Hook 経由で各APIレスポンス後に即時反映（stdout パースはフォールバック）
   - used_percentageベースで計算、セッション最大値を追跡して逆行防止
+- **Codex の取得経路**: Codex には statusline に当たるフックが無いので、rollout ファイル（`~/.codex/sessions/.../rollout-*.jsonl`）を tail する
+  - パスは SessionStart hook の `transcript_path` で受け取る。再開時は保存済みのパスで先に読み始め、hook が届いたら張り直す
+  - `token_count` 行の `last_token_usage.total_tokens` を使用量、`model_context_window` を上限にする。`total_token_usage` はセッションの累計なので使わない
 
 ### 通知センター
 
@@ -365,6 +369,10 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **セッション終了は子孫プロセスまで**: `pty.kill()` はログインシェルにしかシグナルが届かず、claude が起動したバックグラウンドジョブが生き残って完了後も通知を出してくる。`TerminalService.kill()` は kill 前に `ps -eo pid=,ppid=` で子孫PIDを洗い出し（親を先に殺すと reparent されて辿れなくなる）、SIGTERM → 3秒後に生存分へ SIGKILL する。アプリ終了時の `killAll()` は setTimeout が発火しないので猶予なしの SIGKILL
 - **完了時のセッション終了フックは `TaskService` に集約**: done にする経路が UI / 通知 / MCP と複数あるため、`TaskService.onStatusChange` / `onDeleted` を index.ts で1本だけ購読して `stopHook.removeTaskCallback` → `rotation.clear` → `resetContextTracking` → `terminal.kill` を実行する。各呼び出し元に散らすと必ず取りこぼす
 - **コンテキスト解析**: Status Line Hook 経由が主系、stdout/stderrパースはフォールバック。`used_percentage` ベースで計算し、セッション最大値を追跡して逆行防止
+- **取得元はすべて `ClaudeService.fireContextUpdate` を通す**: Status Line Hook も rollout の tail も `attachContextSource()` で購読させ、単調増加ゲート・80/90% 通知・DB 保存・レンダラー送信を共用する。Codex 用に別の経路を作ると、通知の重複や再開時のリセット漏れが起きる
+- **stdout パースは provider ごとに切り替える**: パターンは Claude Code の表示に合わせてあり、上限 200000 も決め打ちしている。`AgentProvider.parseStdoutContext` が true のエージェント（Claude）だけで使う
+- **rollout の tail（`TranscriptContextService`）**: `fs.watch` で変更を受け、読み込み位置を保持して追記分だけ読む。行の途中で切れたチャンクは次回に回し、マルチバイト文字は `StringDecoder` で持ち越す。SessionStart の時点でファイルがまだ無いことと `fs.watch` の取りこぼしに備え、2秒おきにも確認する。まとめて読んだときは最後の `token_count` だけを流す（再開時に頭から読むと過去のターンの数だけ通知判定が走るため）
+- **tail を止める場所**: `endTaskSession`（完了・削除）、新規起動の直前、アプリ終了時。新規起動で止めないと、新しいパスが hook で届くまで前のセッションの rollout を読み続ける
 - **bg://プロトコル**: `protocol.registerSchemesAsPrivileged` で`app.whenReady`より前に登録必要
 - **再起動時クリーンアップ**: 起動直後にdoing→will_do変換 + task_runtimeテーブル全削除
 - **LocalHttpServer**: Stop Hook・Status Line Hook・MCP SSEを共有する単一HTTPサーバー（`addRoute()` / `addRawRoute()` でエンドポイント追加）

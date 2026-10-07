@@ -7,6 +7,7 @@ import type { TaskService } from '../services/TaskService'
 import type { GitService } from '../services/GitService'
 import type { TerminalService } from '../services/TerminalService'
 import type { StopHookService } from '../services/StopHookService'
+import type { TranscriptContextService } from '../services/TranscriptContextService'
 import type { AgentRegistry } from '../agents/AgentRegistry'
 import type { AgentProvider } from '../agents/types'
 import type { AgentId, AppSettings, ClaudeModel, LaunchMode } from '../../../src/types/ipc'
@@ -98,6 +99,7 @@ type StartTaskDeps = {
   getWindow: () => BrowserWindow | null
   getSettings: () => AppSettings
   stopHookService?: StopHookService
+  transcriptContextService?: TranscriptContextService
 }
 
 export type StartTaskOptions = {
@@ -265,6 +267,8 @@ async function startTaskOnce(
     // 起動前に採番できないエージェント（Codex）は SessionStart hook で受け取るまで空にしておく。
     // 前回のセッションIDが残っていると、再開ボタンが古いセッションを開いてしまう
     const sessionId = provider.capabilities.presetSessionId ? randomUUID() : undefined
+    // 前のセッションの rollout を読み続けないよう止める（新しいパスは SessionStart hook で届く）
+    deps.transcriptContextService?.stop(taskId)
     taskService.update(taskId, { sessionId, transcriptPath: undefined, lastLaunchMode: effectiveLaunchMode, lastModel: model })
     claudeService.start(taskId, resolvedWorkdir, provider, {
       prompt: taskPrompt,
@@ -418,6 +422,10 @@ async function resumeTaskOnce(
       rows,
       resumeSessionId: sessionId,
     })
+    // 再開でも SessionStart hook は届くが、届くまでの間も前回の rollout から表示できるようにしておく
+    if (provider.capabilities.contextSource === 'transcript' && task.transcriptPath) {
+      deps.transcriptContextService?.watch(taskId, task.transcriptPath)
+    }
 
     attachSession(deps, provider, taskId, resolvedWorkdir)
   } catch (startError) {

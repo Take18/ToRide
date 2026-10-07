@@ -52,6 +52,11 @@ export interface AgentProvider {
    */
   readyPattern?: RegExp
   /**
+   * PTY 出力からコンテキスト使用量を拾うフォールバックを使うか。
+   * ClaudeService.parseContext のパターンは Claude Code の表示に合わせてあるので、他のエージェントでは使わない
+   */
+  parseStdoutContext?: boolean
+  /**
    * 注入してはいけない画面の検出パターン。照合対象は ANSI エスケープと空白を除いた PTY 出力。
    * blockedBy が出たら unblockedBy が出るまで注入しない。注入するものがなくても、出たことは通知する
    */

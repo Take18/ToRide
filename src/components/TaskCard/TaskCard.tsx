@@ -240,7 +240,7 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
     : agentId === 'claude' ? FALLBACK_CLAUDE_MODELS : []
   const launchModes = agentInfo?.launchModes ?? ALL_LAUNCH_MODES
   // 一覧の取得前は claude だけ対応扱いにする（他のエージェントで一瞬メーターが出るのを防ぐ）
-  const contextSupported = agentInfo ? agentInfo.capabilities.contextSource === 'statusline' : agentId === 'claude'
+  const contextSupported = agentInfo ? agentInfo.capabilities.contextSource !== 'none' : agentId === 'claude'
   const missingFeatures = agentInfo ? listMissingFeatures(agentInfo.capabilities) : []
   const tasks = useTaskStore((s) => s.tasks)
   const startTask = useTaskStore((s) => s.startTask)
@@ -506,7 +506,7 @@ export default function TaskCard({ task, hasFreePane = true, defaultLaunchMode =
             ) : (
               <div className="flex justify-between text-xs text-gray-400">
                 <span>Context</span>
-                <span className="text-gray-500">未対応（#77 で対応予定）</span>
+                <span className="text-gray-500">未対応</span>
               </div>
             )}
 
