@@ -74,6 +74,11 @@ export interface AgentProvider {
    * blockedBy が出たら unblockedBy が出るまで注入しない。注入するものがなくても、出たことは通知する
    */
   injectGuard?: InjectGuard
+  /**
+   * 起動後に送る本文（ローテーションの handoff 指示）を bracketed paste で囲むか。
+   * 囲まないと本文中の改行がキー入力の Enter として届き、ピッカーなどの対話画面で選択を確定させてしまう
+   */
+  pasteInput?: boolean
 }
 
 export type InjectGuard = {

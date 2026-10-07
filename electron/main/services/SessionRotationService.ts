@@ -96,6 +96,8 @@ type Deps = {
   notify: (input: NotifyInput) => void
   /** タスクのエージェントがローテーションに対応しているか（未指定なら全タスク対応扱い） */
   supportsRotation?: (task: RuntimeTask) => boolean
+  /** 指示文を bracketed paste で送るエージェントか（AgentProvider.pasteInput） */
+  usesPasteInput?: (task: RuntimeTask) => boolean
 }
 
 /** 空白・改行をすべて除去して照合用に正規化する（TUI の行折り返しを吸収するため） */
@@ -265,9 +267,10 @@ export class SessionRotationService {
     // startEchoBuffer がバッファを空にするので、照合対象は「この write 以降に受信したデータ」だけになる。
     // await を挟むと前ターンの残骸が混入し、入力欄に入っていないのに照合が通る偽陽性が起きる
     // （＝対話プロンプト表示中に \r を送ってしまう）
+    const payload = this.deps.usesPasteInput?.(task) ? `\x1b[200~${instruction}\x1b[201~` : instruction
     this.startEchoBuffer(taskId, state)
     state.instructionSentAt = Date.now()
-    this.deps.terminalService.write(taskId, instruction)
+    this.deps.terminalService.write(taskId, payload)
     await new Promise((r) => setTimeout(r, ECHO_WAIT_MS))
 
     const echoed = this.verifyEcho(state, handoffPath, instruction)

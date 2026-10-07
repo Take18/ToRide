@@ -94,6 +94,10 @@ export class CodexProvider implements AgentProvider {
       'Codex のフォルダ信頼確認が出ています。ターミナルで選ぶと開始します（設定画面の「ペインを信頼済みにする」で次回から出なくなります）',
   }
 
+  // 改行を Enter として送ると、/model などのピッカー表示中に選択が確定してしまう（0.154.0 で実測）。
+  // bracketed paste ならピッカーは反応せず、入力欄ではそのまま本文として表示される
+  readonly pasteInput = true
+
   private authCache: { at: number; status: CodexAuthStatus } | null = null
   private modelsCache: { at: number; models: string[] } | null = null
 

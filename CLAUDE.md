@@ -240,7 +240,7 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **ガード（原因側）**: 新セッションの最初のターン終了時点の使用率を `baseline` として記録し、`threshold * 0.8` を超えたら自動停止（handoff肥大の検知）。handoffが8KB超なら警告
 - **通知**: rotation有効タスクでは80%/90%通知を抑制。ただし**保留・停止・中止の通知は必ず出す**（無音が「正常」を意味するのを防ぐため）
 - **履歴**: `rotation.history` に回数・時刻・理由を記録。`{rotationCount}` として bootPrompt に展開
-- **Codex**: エコー検証の待ち時間・照合方法は Claude と同じ。Codex 0.154.0 で、200ms 後に handoff パスの末尾がエコーされること、`/model` のピッカー表示中は照合に失敗して保留になることを確かめた。新セッションのIDは起動前に決まらないので、SessionStart hook で届いたときに履歴の `toSessionId` に入れる。Codex の auto compact の既定の閾値はまだ確かめておらず、`model_auto_compact_token_limit` も渡していない。ローテーションの閾値より先に auto compact が走ると、ローテーションは発火しない
+- **Codex**: エコー検証の待ち時間・照合方法は Claude と同じ。Codex 0.154.0 で、200ms 後に handoff パスの末尾がエコーされること、`/model` のピッカー表示中は照合に失敗して保留になることを確かめた。指示文は bracketed paste で囲んで送る（`AgentProvider.pasteInput`）。そのまま書き込むと、本文中の改行が Enter として届き、ピッカーの選択を確定させてしまうため。Codex は長いペーストを `[Pasted Content N chars]` に畳むので、指示文を長くしすぎると照合に失敗して保留になる。新セッションのIDは起動前に決まらないので、SessionStart hook で届いたときに履歴の `toSessionId` に入れる。Codex の auto compact の既定の閾値はまだ確かめておらず、`model_auto_compact_token_limit` も渡していない。ローテーションの閾値より先に auto compact が走ると、ローテーションは発火しない
 
 ### 常駐オーケストレータ（residentOrchestrator）
 

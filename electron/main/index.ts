@@ -379,6 +379,7 @@ app.whenReady().then(() => {
     startTask: startTaskFn,
     notify: (input) => notificationService.notify(input),
     supportsRotation: (task) => agentRegistry.get(task.agent).capabilities.rotation,
+    usesPasteInput: (task) => agentRegistry.get(task.agent).pasteInput ?? false,
   })
   // 閾値判定はコンテキスト更新に相乗りする（Status Line Hook 経由が主系）
   claudeService.onContextUpdate((info) => rotationService?.onContextUpdate(info))
