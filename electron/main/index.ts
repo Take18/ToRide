@@ -38,7 +38,7 @@ import { registerGitHubHandlers, syncReviewPRs } from './ipc/github'
 import { registerTicketHandlers } from './ipc/ticket'
 import { registerNotificationHandlers } from './ipc/notifications'
 import { NotificationService } from './services/NotificationService'
-import type { AppSettings } from '../../src/types/ipc'
+import type { AgentId, AppSettings } from '../../src/types/ipc'
 
 // GUIアプリとして起動した場合のベースラインPATH拡張（シェルプロファイルが読まれないため）
 process.env.PATH = `/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${process.env.PATH || ''}`
@@ -349,6 +349,8 @@ app.whenReady().then(() => {
       }
       if (capabilities.presetSessionId) return
       taskService.update(taskId, { sessionId, transcriptPath })
+      // ローテーションで立てた新セッションなら、履歴の toSessionId にも入れる
+      rotationService?.onSessionStarted(taskId, sessionId)
       getWindow()?.webContents.send('tasks:updated')
     } catch (err) {
       console.error('[agentSessionService] session save failed:', err)
@@ -377,6 +379,7 @@ app.whenReady().then(() => {
     startTask: startTaskFn,
     notify: (input) => notificationService.notify(input),
     supportsRotation: (task) => agentRegistry.get(task.agent).capabilities.rotation,
+    usesPasteInput: (task) => agentRegistry.get(task.agent).pasteInput ?? false,
   })
   // 閾値判定はコンテキスト更新に相乗りする（Status Line Hook 経由が主系）
   claudeService.onContextUpdate((info) => rotationService?.onContextUpdate(info))
@@ -450,8 +453,8 @@ app.whenReady().then(() => {
 
   // スラッシュコマンド／スキル補完
   const slashCommandService = new SlashCommandService()
-  ipcMain.handle('claude:list-commands', (_, workdir?: string) =>
-    slashCommandService.listCommands(workdir)
+  ipcMain.handle('claude:list-commands', (_, { workdir, agentId }: { workdir?: string; agentId?: AgentId }) =>
+    slashCommandService.listCommands(agentRegistry.get(agentId), workdir)
   )
 
   // Stop Hook IPC handlers

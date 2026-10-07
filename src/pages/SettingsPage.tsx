@@ -13,6 +13,7 @@ import ConfirmDialog from '../components/Common/ConfirmDialog'
 import Toast from '../components/Common/Toast'
 import { PromptTextarea } from '../components/Common/PromptTextarea'
 import { AgentDefaultsSection, CodexSection } from '../components/AgentSettings/AgentSettings'
+import { resolveDefaultAgent } from '../utils/agent'
 
 // args配列 ↔ テキスト変換をonBlurで行うinput
 function ArgsInput({
@@ -1020,6 +1021,7 @@ export default function SettingsPage() {
                   <PromptTextarea
                     ref={(el) => { templateRefs.current[type] = el }}
                     value={settings.promptTemplates?.[type] ?? ''}
+                    agent={resolveDefaultAgent(settings, type)}
                     onChange={(v) =>
                       setSettings((prev) => ({
                         ...prev,
@@ -1056,6 +1058,7 @@ export default function SettingsPage() {
           </div>
           <PromptTextarea
             value={settings.orchestrateSystemPrompt ?? ''}
+            agent={resolveDefaultAgent(settings, 'orchestrate')}
             onChange={(v) =>
               setSettings((prev) => ({ ...prev, orchestrateSystemPrompt: v }))
             }

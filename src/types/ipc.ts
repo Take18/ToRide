@@ -43,6 +43,8 @@ export type AgentCapabilities = {
   planMode: 'flag' | 'slash' | 'none'
   /** セッションローテーションに対応しているか */
   rotation: boolean
+  /** プロンプトの先頭でコマンド・スキルを呼ぶ記号（Claude は /スラッシュコマンド、Codex は $スキル名） */
+  commandTrigger: '/' | '$'
 }
 
 // 画面に出すエージェントの情報（agents:list）
@@ -97,8 +99,14 @@ export type SlashCommandInfo = {
   name: string
   description: string
   kind: 'command' | 'skill'
-  source: 'user' | 'project' | 'plugin'
+  source: 'user' | 'project' | 'plugin' | 'system'
   argumentHint?: string  // frontmatter の argument-hint
+}
+
+// 補完候補の一覧。trigger はプロンプトの先頭で候補を出す記号（エージェントで変わる）
+export type SlashCommandList = {
+  trigger: '/' | '$'
+  items: SlashCommandInfo[]
 }
 
 // GitHub トークン（fine-grained personal access token）
@@ -268,7 +276,7 @@ export type IpcChannels = {
   'agents:list': [void, AgentInfo[]]
   'codex:status': [{ refresh?: boolean } | undefined, CodexStatus]
   'codex:trust-panes': [void, CodexTrustResult]
-  'claude:list-commands': [string | undefined, SlashCommandInfo[]]
+  'claude:list-commands': [{ workdir?: string; agentId?: AgentId }, SlashCommandList]
 
   // Dev Server
   'devserver:start': [{ repoId: string; paneId: string; label: string }, void]
@@ -390,7 +398,7 @@ export type WindowApi = {
     start: (taskId: string, workdir: string, prompt?: string, cols?: number, rows?: number, launchMode?: LaunchMode, model?: ClaudeModel) => Promise<void>
     resume: (taskId: string, cols?: number, rows?: number, launchMode?: LaunchMode, model?: ClaudeModel) => Promise<void>
     listModels: (agentId?: AgentId) => Promise<string[]>
-    listCommands: (workdir?: string) => Promise<SlashCommandInfo[]>
+    listCommands: (workdir?: string, agentId?: AgentId) => Promise<SlashCommandList>
     onContextUpdate: (callback: (info: ContextInfo) => void) => () => void
   }
   agents: {

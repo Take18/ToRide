@@ -1,11 +1,13 @@
 import { forwardRef, useCallback, useEffect, useRef, useState } from 'react'
-import type { SlashCommandInfo } from '../../types/ipc'
+import type { AgentId, SlashCommandInfo, SlashCommandList } from '../../types/ipc'
 
 type Props = {
   value: string
   onChange: (value: string) => void
   /** プロジェクト定義（<workdir>/.claude）とプロジェクトスコープのプラグインを候補に含めるための作業ディレクトリ */
   workdir?: string
+  /** 候補の収集元と呼び出し記号（Claude は /、Codex は $）を決めるエージェント。未指定は claude */
+  agent?: AgentId
   placeholder?: string
   rows?: number
   className?: string
@@ -15,18 +17,20 @@ type Props = {
 const SOURCE_LABEL: Record<SlashCommandInfo['source'], string> = {
   project: 'project',
   user: 'user',
-  plugin: 'plugin'
+  plugin: 'plugin',
+  system: 'system'
 }
 
 const SOURCE_CLASS: Record<SlashCommandInfo['source'], string> = {
   project: 'text-green-400 border-green-800',
   user: 'text-blue-400 border-blue-800',
-  plugin: 'text-purple-400 border-purple-800'
+  plugin: 'text-purple-400 border-purple-800',
+  system: 'text-gray-400 border-gray-600'
 }
 
-/** 入力の先頭トークンが `/xxx` で、かつカーソルがその中にあるときだけ補完クエリを返す */
-function detectQuery(value: string, cursor: number): string | null {
-  if (!value.startsWith('/') || cursor < 1) return null
+/** 入力の先頭トークンが `/xxx`（Codex は `$xxx`）で、かつカーソルがその中にあるときだけ補完クエリを返す */
+function detectQuery(value: string, cursor: number, trigger: SlashCommandList['trigger']): string | null {
+  if (!value.startsWith(trigger) || cursor < 1) return null
   const boundary = value.search(/\s/)
   const tokenEnd = boundary === -1 ? value.length : boundary
   if (cursor > tokenEnd) return null
@@ -48,16 +52,18 @@ function filterCommands(commands: SlashCommandInfo[], query: string): SlashComma
 
 /**
  * スラッシュコマンド／スキルの補完つき textarea。
- * 入力全体の先頭で `/` を打つと候補が出る（文中の `/` では発火しない）。
+ * 入力全体の先頭で `/`（Codex は `$`）を打つと候補が出る（文中では発火しない）。
  */
 export const PromptTextarea = forwardRef<HTMLTextAreaElement, Props>(function PromptTextarea(
-  { value, onChange, workdir, placeholder, rows, className, required },
+  { value, onChange, workdir, agent, placeholder, rows, className, required },
   forwardedRef
 ) {
   const innerRef = useRef<HTMLTextAreaElement | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const [commands, setCommands] = useState<SlashCommandInfo[]>([])
+  // 呼び出し記号は候補と一緒にエージェントから返ってくる。届くまでは Claude と同じ / で待つ
+  const triggerRef = useRef<SlashCommandList['trigger']>('/')
   const [query, setQuery] = useState<string | null>(null)
   const [highlight, setHighlight] = useState(0)
   const loadedFor = useRef<string | null>(null)
@@ -76,21 +82,6 @@ export const PromptTextarea = forwardRef<HTMLTextAreaElement, Props>(function Pr
     [forwardedRef]
   )
 
-  // workdir が変わったら候補を取り直す
-  useEffect(() => {
-    loadedFor.current = null
-  }, [workdir])
-
-  const loadCommands = useCallback(() => {
-    const key = workdir ?? ''
-    if (loadedFor.current === key) return
-    loadedFor.current = key
-    window.api.claude
-      .listCommands(workdir || undefined)
-      .then(setCommands)
-      .catch(() => setCommands([]))
-  }, [workdir])
-
   const syncQuery = useCallback((nextValue?: string) => {
     const el = innerRef.current
     if (!el) return
@@ -98,8 +89,30 @@ export const PromptTextarea = forwardRef<HTMLTextAreaElement, Props>(function Pr
       setQuery(null)
       return
     }
-    setQuery(detectQuery(nextValue ?? el.value, el.selectionStart))
+    setQuery(detectQuery(nextValue ?? el.value, el.selectionStart, triggerRef.current))
   }, [])
+
+  const loadCommands = useCallback(() => {
+    const key = `${agent ?? ''}:${workdir ?? ''}`
+    if (loadedFor.current === key) return
+    loadedFor.current = key
+    window.api.claude
+      .listCommands(workdir || undefined, agent)
+      .then((list) => {
+        if (loadedFor.current !== key) return
+        triggerRef.current = list.trigger
+        setCommands(list.items)
+        // 記号が変わったときに、入力済みの先頭トークンで候補を出し直す
+        if (document.activeElement === innerRef.current) syncQuery()
+      })
+      .catch(() => setCommands([]))
+  }, [workdir, agent, syncQuery])
+
+  // workdir・エージェントが変わったら候補を取り直す。
+  // エージェントで呼び出し記号も変わるので、フォーカスを待たずに先に取りにいく
+  useEffect(() => {
+    loadCommands()
+  }, [loadCommands])
 
   const filtered = query === null ? [] : filterCommands(commands, query)
   const isOpen = filtered.length > 0
@@ -130,7 +143,7 @@ export const PromptTextarea = forwardRef<HTMLTextAreaElement, Props>(function Pr
     const tokenEnd = boundary === -1 ? value.length : boundary
     const rest = value.slice(tokenEnd)
     // 引数を続けて書けるよう、後ろに何も無ければ半角スペースを補う
-    const inserted = `/${name}${rest === '' ? ' ' : ''}`
+    const inserted = `${triggerRef.current}${name}${rest === '' ? ' ' : ''}`
     onChange(inserted + rest)
     suppressed.current = true
     setQuery(null)
@@ -217,7 +230,7 @@ export const PromptTextarea = forwardRef<HTMLTextAreaElement, Props>(function Pr
               className={`px-3 py-1.5 cursor-pointer ${i === highlight ? 'bg-blue-600' : 'hover:bg-gray-600'}`}
             >
               <div className="flex items-center gap-2">
-                <span className="font-mono text-sm text-white">/{c.name}</span>
+                <span className="font-mono text-sm text-white">{triggerRef.current}{c.name}</span>
                 {c.argumentHint && (
                   <span className="font-mono text-xs text-gray-400 truncate">{c.argumentHint}</span>
                 )}

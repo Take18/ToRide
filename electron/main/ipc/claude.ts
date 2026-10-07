@@ -284,7 +284,7 @@ async function startTaskOnce(
     const rotationRequested = task.rotation?.enabled ?? settings.rotationDefaults?.enabled ?? false
     if (rotationRequested && !provider.capabilities.rotation) {
       taskService.update(taskId, {
-        rotationDisabledReason: `${provider.displayName} はセッションローテーションに未対応です（#78 で対応予定）`,
+        rotationDisabledReason: `${provider.displayName} はセッションローテーションに未対応です`,
       })
     }
 
