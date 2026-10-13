@@ -1,4 +1,4 @@
-import type { AgentCapabilities, AgentId, ClaudeModel, LaunchMode } from '../../../src/types/ipc'
+import type { AgentCapabilities, AgentId, ClaudeModel, LaunchMode, SlashCommandInfo } from '../../../src/types/ipc'
 
 export type { AgentCapabilities }
 
@@ -20,6 +20,17 @@ export type AgentCommand = {
   /** エージェント固有の追加 env。TORIDE_TASK_ID は呼び出し側で必ず付ける */
   env: Record<string, string>
 }
+
+/**
+ * 補完候補の収集元（SlashCommandService が走査する）。並べた順に優先し、同名は先勝ち
+ * - commands: <dir>/**\/*.md（サブディレクトリは名前空間）
+ * - skills: <dir>/*\/SKILL.md。nameFromFrontmatter なら frontmatter の name を候補名にする
+ * - claude-plugins: ~/.claude/plugins/installed_plugins.json の installPath 配下
+ */
+export type CommandSource =
+  | { type: 'commands'; dir: string; source: SlashCommandInfo['source'] }
+  | { type: 'skills'; dir: string; source: SlashCommandInfo['source']; nameFromFrontmatter?: boolean }
+  | { type: 'claude-plugins'; userDir: string }
 
 export type AgentReadiness = { ok: true } | { ok: false; reason: string }
 
@@ -46,6 +57,8 @@ export interface AgentProvider {
   /** 新規起動のあと TUI に送る入力。送るものがなければ空配列 */
   buildInitialInput(opts: LaunchOptions): InjectStep[]
   listModels(): Promise<string[]>
+  /** プロンプト補完の収集元。workdir はプロジェクト定義を含めるための作業ディレクトリ（解決済みの絶対パス） */
+  commandSources(workdir?: string): CommandSource[]
   /**
    * 入力を受け付ける状態になったことの検出パターン（照合対象は ANSI と空白を除いた PTY 出力）。
    * 未指定なら bracketed paste mode の有効化（\x1b[?2004h）で判定する
@@ -61,6 +74,11 @@ export interface AgentProvider {
    * blockedBy が出たら unblockedBy が出るまで注入しない。注入するものがなくても、出たことは通知する
    */
   injectGuard?: InjectGuard
+  /**
+   * 起動後に送る本文（ローテーションの handoff 指示）を bracketed paste で囲むか。
+   * 囲まないと本文中の改行がキー入力の Enter として届き、ピッカーなどの対話画面で選択を確定させてしまう
+   */
+  pasteInput?: boolean
 }
 
 export type InjectGuard = {

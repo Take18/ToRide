@@ -1,9 +1,9 @@
 import { open, readdir, readFile, stat } from 'fs/promises'
 import type { Dirent } from 'fs'
-import { homedir } from 'os'
 import { join, resolve, sep } from 'path'
 import { expandPath } from '../utils/path'
-import type { SlashCommandInfo } from '../../../src/types/ipc'
+import type { SlashCommandInfo, SlashCommandList } from '../../../src/types/ipc'
+import type { AgentProvider } from '../agents/types'
 
 const CACHE_TTL_MS = 30 * 1000
 /** frontmatter と冒頭見出しさえ読めればよいので、先頭だけ読んで打ち切る */
@@ -33,9 +33,12 @@ async function readHead(path: string): Promise<string> {
   }
 }
 
-/** frontmatter の description / argument-hint を拾い、無ければ冒頭の見出しか本文1行目で代用する */
-function parseMeta(head: string): { description: string; argumentHint?: string } {
+type Meta = { name?: string; description: string; argumentHint?: string }
+
+/** frontmatter の name / description / argument-hint を拾い、description が無ければ冒頭の見出しか本文1行目で代用する */
+function parseMeta(head: string): Meta {
   let body = head
+  let name: string | undefined
   let description = ''
   let argumentHint: string | undefined
 
@@ -44,7 +47,7 @@ function parseMeta(head: string): { description: string; argumentHint?: string }
     body = head.slice(fm[0].length)
     const lines = fm[1].split(/\r?\n/)
     for (let i = 0; i < lines.length; i++) {
-      const m = lines[i].match(/^(description|argument-hint):\s*(.*)$/)
+      const m = lines[i].match(/^(name|description|argument-hint):\s*(.*)$/)
       if (!m) continue
       let value = m[2].trim()
       if (/^[|>][-+]?\d*$/.test(value)) {
@@ -63,7 +66,8 @@ function parseMeta(head: string): { description: string; argumentHint?: string }
       } else {
         value = value.replace(/^["']|["']$/g, '')
       }
-      if (m[1] === 'description') description = value
+      if (m[1] === 'name') name = value || undefined
+      else if (m[1] === 'description') description = value
       else argumentHint = value
     }
   }
@@ -72,7 +76,7 @@ function parseMeta(head: string): { description: string; argumentHint?: string }
     const firstLine = body.split(/\r?\n/).find((l) => l.trim() !== '')
     description = (firstLine ?? '').replace(/^#+\s*/, '').trim()
   }
-  return { description: description.slice(0, 200), argumentHint }
+  return { name, description: description.slice(0, 200), argumentHint }
 }
 
 /**
@@ -100,32 +104,25 @@ async function safeReaddir(dir: string): Promise<{ name: string; isDir: boolean 
 }
 
 /**
- * Claude Code のスラッシュコマンド・スキルを列挙するサービス。
- *
- * 収集元:
- * - ユーザー: `~/.claude/commands/**\/*.md` / `~/.claude/skills/*\/SKILL.md`
- * - プロジェクト: `<workdir>/.claude/commands` / `<workdir>/.claude/skills`
- * - プラグイン: `~/.claude/plugins/installed_plugins.json` の installPath 配下
+ * プロンプト補完の候補（スラッシュコマンド・スキル）を列挙するサービス。
+ * 収集元はエージェントごとに違うので、provider の commandSources() に従って走査する
  */
 export class SlashCommandService {
   private cache = new Map<string, { items: SlashCommandInfo[]; fetchedAt: number }>()
 
-  async listCommands(workdir?: string): Promise<SlashCommandInfo[]> {
-    const key = workdir ? resolve(expandPath(workdir)) : ''
+  async listCommands(provider: AgentProvider, workdir?: string): Promise<SlashCommandList> {
+    const trigger = provider.capabilities.commandTrigger
+    const resolvedWorkdir = workdir ? resolve(expandPath(workdir)) : ''
+    const key = `${provider.id}:${resolvedWorkdir}`
     const hit = this.cache.get(key)
-    if (hit && Date.now() - hit.fetchedAt < CACHE_TTL_MS) return hit.items
+    if (hit && Date.now() - hit.fetchedAt < CACHE_TTL_MS) return { trigger, items: hit.items }
 
-    const userDir = join(homedir(), '.claude')
     const collected: SlashCommandInfo[] = []
-
-    // プロジェクト定義を先に積む（同名はプロジェクト > ユーザー > プラグインの優先で残す）
-    if (key) {
-      collected.push(...(await this.scanCommands(join(key, '.claude', 'commands'), '', 'project')))
-      collected.push(...(await this.scanSkills(join(key, '.claude', 'skills'), '', 'project')))
+    for (const src of provider.commandSources(resolvedWorkdir || undefined)) {
+      if (src.type === 'commands') collected.push(...(await this.scanCommands(src.dir, '', src.source)))
+      else if (src.type === 'skills') collected.push(...(await this.scanSkills(src.dir, '', src.source, src.nameFromFrontmatter)))
+      else collected.push(...(await this.scanPlugins(src.userDir, resolvedWorkdir)))
     }
-    collected.push(...(await this.scanCommands(join(userDir, 'commands'), '', 'user')))
-    collected.push(...(await this.scanSkills(join(userDir, 'skills'), '', 'user')))
-    collected.push(...(await this.scanPlugins(userDir, key)))
 
     const byName = new Map<string, SlashCommandInfo>()
     for (const item of collected) {
@@ -133,7 +130,7 @@ export class SlashCommandService {
     }
     const items = [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
     this.cache.set(key, { items, fetchedAt: Date.now() })
-    return items
+    return { trigger, items }
   }
 
   /** キャッシュを捨てて次回スキャンし直させる */
@@ -161,7 +158,7 @@ export class SlashCommandService {
       const base = entry.name.slice(0, -3)
       const meta = await this.readMeta(path)
       if (!meta) continue
-      results.push({ name: `${prefix}${base}`, kind: 'command', source, ...meta })
+      results.push({ name: `${prefix}${base}`, kind: 'command', source, description: meta.description, argumentHint: meta.argumentHint })
     }
     return results
   }
@@ -169,7 +166,8 @@ export class SlashCommandService {
   private async scanSkills(
     dir: string,
     prefix: string,
-    source: SlashCommandInfo['source']
+    source: SlashCommandInfo['source'],
+    nameFromFrontmatter = false
   ): Promise<SlashCommandInfo[]> {
     const entries = await safeReaddir(dir)
     const results: SlashCommandInfo[] = []
@@ -177,14 +175,13 @@ export class SlashCommandService {
       if (!entry.isDir) continue
       const meta = await this.readMeta(join(dir, entry.name, 'SKILL.md'))
       if (!meta) continue
-      results.push({ name: `${prefix}${entry.name}`, kind: 'skill', source, ...meta })
+      const name = (nameFromFrontmatter && meta.name) || entry.name
+      results.push({ name: `${prefix}${name}`, kind: 'skill', source, description: meta.description, argumentHint: meta.argumentHint })
     }
     return results
   }
 
-  private async readMeta(
-    path: string
-  ): Promise<{ description: string; argumentHint?: string } | null> {
+  private async readMeta(path: string): Promise<Meta | null> {
     try {
       return parseMeta(await readHead(path))
     } catch {

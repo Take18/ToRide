@@ -549,6 +549,7 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
                   value={form.prompt}
                   onChange={(v) => set('prompt', v)}
                   workdir={promptWorkdir}
+                  agent={form.agent}
                   placeholder="例: Aコンポーネントの実装後にBをレビューして、両方完了したらCをリリースする"
                   rows={4}
                   className={inputClass}
@@ -588,6 +589,7 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
                   value={form.prompt}
                   onChange={(v) => set('prompt', v)}
                   workdir={promptWorkdir}
+                  agent={form.agent}
                   placeholder="Claude Codeへの指示..."
                   rows={3}
                   className={inputClass}
@@ -706,7 +708,7 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
               </label>
               {!rotationSupported && (
                 <p className="text-[11px] text-yellow-300 leading-relaxed">
-                  {selectedAgent?.displayName ?? form.agent} はセッションローテーションに未対応のため、有効にできません（#78 で対応予定）。
+                  {selectedAgent?.displayName ?? form.agent} はセッションローテーションに未対応のため、有効にできません。
                 </p>
               )}
               <p className="text-[11px] text-gray-500 leading-relaxed">

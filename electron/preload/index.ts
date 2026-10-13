@@ -10,7 +10,7 @@ import type {
   ClaudeModel,
   RotationStatus,
   ResidentOrchestratorRunResult,
-  SlashCommandInfo,
+  SlashCommandList,
   NavigationPayload,
   NotificationRecord,
   GitHubTokenVerifyResult,
@@ -81,8 +81,8 @@ const api = {
     resume: (taskId: string, cols?: number, rows?: number, launchMode?: LaunchMode, model?: ClaudeModel): Promise<void> =>
       ipcRenderer.invoke('claude:resume', { taskId, cols, rows, launchMode, model }),
     listModels: (agentId?: AgentId): Promise<string[]> => ipcRenderer.invoke('claude:list-models', agentId),
-    listCommands: (workdir?: string): Promise<SlashCommandInfo[]> =>
-      ipcRenderer.invoke('claude:list-commands', workdir),
+    listCommands: (workdir?: string, agentId?: AgentId): Promise<SlashCommandList> =>
+      ipcRenderer.invoke('claude:list-commands', { workdir, agentId }),
     onContextUpdate: (callback: (info: ContextInfo) => void): (() => void) => {
       const listener = (_: IpcRendererEvent, info: ContextInfo): void => callback(info)
       ipcRenderer.on('claude:context-update', listener)

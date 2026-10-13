@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { homedir } from 'os'
 import type { LaunchMode } from '../../../src/types/ipc'
-import type { AgentCapabilities, AgentCommand, AgentProvider, AgentReadiness, InjectStep, LaunchOptions } from './types'
+import type { AgentCapabilities, AgentCommand, AgentProvider, AgentReadiness, CommandSource, InjectStep, LaunchOptions } from './types'
 import { parseJsonOutput, runCodex } from './codexCli'
 
 const CAPABILITIES: AgentCapabilities = {
@@ -14,7 +14,11 @@ const CAPABILITIES: AgentCapabilities = {
   contextSource: 'transcript',
   prDetection: false,
   planMode: 'slash',
-  rotation: false,
+  // エコー検証（handoff パスの末尾照合）は Claude と同じ待ち時間で通る（0.154.0 で実測）
+  rotation: true,
+  // 起動引数のプロンプトは1通のメッセージとして送られるので、/status などの組み込みコマンドは実行されない。
+  // $スキル名 は起動引数でも展開される
+  commandTrigger: '$',
 }
 
 const TORIDE_DIR = path.join(homedir(), '.toride')
@@ -89,6 +93,10 @@ export class CodexProvider implements AgentProvider {
     notice:
       'Codex のフォルダ信頼確認が出ています。ターミナルで選ぶと開始します（設定画面の「ペインを信頼済みにする」で次回から出なくなります）',
   }
+
+  // 改行を Enter として送ると、/model などのピッカー表示中に選択が確定してしまう（0.154.0 で実測）。
+  // bracketed paste ならピッカーは反応せず、入力欄ではそのまま本文として表示される
+  readonly pasteInput = true
 
   private authCache: { at: number; status: CodexAuthStatus } | null = null
   private modelsCache: { at: number; models: string[] } | null = null
@@ -191,6 +199,22 @@ export class CodexProvider implements AgentProvider {
       .map((m) => m.slug as string)
     this.modelsCache = { at: Date.now(), models }
     return models
+  }
+
+  // skills はリポジトリの .agents/skills・~/.agents/skills・$CODEX_HOME/skills/.system から読まれる（0.154.0 で実測）。
+  // $ のあとに書くのはディレクトリ名ではなく frontmatter の name。
+  // ~/.codex/prompts のカスタムプロンプトは deprecated で動かないので候補にしない
+  commandSources(workdir?: string): CommandSource[] {
+    const codexHome = process.env.CODEX_HOME || path.join(homedir(), '.codex')
+    const sources: CommandSource[] = []
+    if (workdir) {
+      sources.push({ type: 'skills', dir: path.join(workdir, '.agents', 'skills'), source: 'project', nameFromFrontmatter: true })
+    }
+    sources.push(
+      { type: 'skills', dir: path.join(homedir(), '.agents', 'skills'), source: 'user', nameFromFrontmatter: true },
+      { type: 'skills', dir: path.join(codexHome, 'skills', '.system'), source: 'system', nameFromFrontmatter: true }
+    )
+    return sources
   }
 
   private commonArgs({ launchMode, model }: LaunchOptions): string {

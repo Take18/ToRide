@@ -44,7 +44,14 @@ const CAPABILITY_ROWS: { label: string; render: (c: AgentCapabilities) => { text
   },
   {
     label: 'セッションローテーション',
-    render: (c) => (c.rotation ? { text: '対応', ok: true } : { text: '未対応（#78 で対応予定）', ok: false }),
+    render: (c) => (c.rotation ? { text: '対応', ok: true } : { text: '未対応', ok: false }),
+  },
+  {
+    label: 'プロンプトの補完',
+    render: (c) => ({
+      text: c.commandTrigger === '/' ? '/ でコマンド・スキル' : '$ でスキル（組み込みコマンドは起動引数では効かない）',
+      ok: true,
+    }),
   },
 ]
 

@@ -1,6 +1,8 @@
 import type { ModelListService } from '../services/ModelListService'
 import type { LaunchMode } from '../../../src/types/ipc'
-import type { AgentCapabilities, AgentCommand, AgentProvider, AgentReadiness, InjectStep, LaunchOptions } from './types'
+import path from 'path'
+import { homedir } from 'os'
+import type { AgentCapabilities, AgentCommand, AgentProvider, AgentReadiness, CommandSource, InjectStep, LaunchOptions } from './types'
 
 const CAPABILITIES: AgentCapabilities = {
   driver: 'pty',
@@ -11,6 +13,7 @@ const CAPABILITIES: AgentCapabilities = {
   prDetection: true,
   planMode: 'flag',
   rotation: true,
+  commandTrigger: '/',
 }
 
 export class ClaudeProvider implements AgentProvider {
@@ -55,6 +58,24 @@ export class ClaudeProvider implements AgentProvider {
 
   listModels(): Promise<string[]> {
     return this.modelListService.listModels()
+  }
+
+  // 同名はプロジェクト > ユーザー > プラグインの優先で残す
+  commandSources(workdir?: string): CommandSource[] {
+    const userDir = path.join(homedir(), '.claude')
+    const sources: CommandSource[] = []
+    if (workdir) {
+      sources.push(
+        { type: 'commands', dir: path.join(workdir, '.claude', 'commands'), source: 'project' },
+        { type: 'skills', dir: path.join(workdir, '.claude', 'skills'), source: 'project' }
+      )
+    }
+    sources.push(
+      { type: 'commands', dir: path.join(userDir, 'commands'), source: 'user' },
+      { type: 'skills', dir: path.join(userDir, 'skills'), source: 'user' },
+      { type: 'claude-plugins', userDir }
+    )
+    return sources
   }
 
   private commonArgs({ launchMode, model }: LaunchOptions): string {
