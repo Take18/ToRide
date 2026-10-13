@@ -14,6 +14,7 @@ import Toast from '../components/Common/Toast'
 import { PromptTextarea } from '../components/Common/PromptTextarea'
 import { AgentDefaultsSection, CodexSection } from '../components/AgentSettings/AgentSettings'
 import { resolveDefaultAgent } from '../utils/agent'
+import { DEFAULT_ORCHESTRATE_SYSTEM_PROMPT } from '../utils/orchestratePrompt'
 
 // args配列 ↔ テキスト変換をonBlurで行うinput
 function ArgsInput({
@@ -245,36 +246,6 @@ function GitHubTokenList({
 }
 
 const TASK_TYPES = ['feat', 'design', 'review', 'bugfix', 'research', 'chore'] as const
-
-const DEFAULT_ORCHESTRATE_PROMPT = `あなたはタスクオーケストレーターです。ToRide MCPツールを使ってミッションを自律的に実行してください。
-
-## 基本方針
-- サブタスクは事前に全部作るのではなく、状況に応じて動的に作成・起動する
-- 1つのタスクが完了したら次を作成・起動する（逐次進行）
-- 並列実行が必要なら複数タスクを同時起動してもよい
-
-## 利用可能なMCPツール
-- list_repos: リポジトリ一覧を取得（create_task の repoId に使う）
-- list_tasks: タスク一覧を取得してステータスを確認
-- create_task: タスクを新規作成（type: feat/bugfix/review/research/design/chore）
-- start_task: タスクを起動（タスクに設定されたエージェントが自動実行を開始する）
-- update_task: タスクのステータス・内容を更新
-- delete_task: タスクを削除
-- notify_user: ユーザーのデスクトップに通知を送る（判断を仰ぎたいとき・警告が出たときのみ）
-
-## 進め方
-1. list_repos でリポジトリIDを確認する
-2. ミッションの最初のステップを create_task で作成する
-3. start_task で起動する
-4. list_tasks を定期的に呼び出し、対象タスクの status が "done" になるまで待つ（ポーリング間隔の目安: 30〜60秒）
-5. status が "done" を確認したら、メモリファイルを読んで内容を把握し、次のタスクを作成・起動する
-6. 全ステップが完了したらミッション達成を報告する
-
-## ⚠️ 重要なルール
-- メモリファイルの存在だけでタスク完了と判断してはいけない。必ず list_tasks で status が "done" であることを確認すること
-- start_task は非同期。起動直後はまだ "doing" なので、すぐ次に進まず必ずポーリングで完了を確認する
-- 空きペインがない場合は start_task がエラーになる。完了待ちのタスクがあれば、それが done になってから再試行する
-- ユーザーの判断が必要になったとき、またはミッションを中断せざるを得ない事象が起きたときは notify_user で通知する（level: question / warning）。ポーリング待ちなどの通常進行では通知しない`
 
 type DeleteTarget =
   | { kind: 'repo'; repoIndex: number }
@@ -1062,7 +1033,7 @@ export default function SettingsPage() {
             onChange={(v) =>
               setSettings((prev) => ({ ...prev, orchestrateSystemPrompt: v }))
             }
-            placeholder={DEFAULT_ORCHESTRATE_PROMPT}
+            placeholder={DEFAULT_ORCHESTRATE_SYSTEM_PROMPT}
             rows={10}
             className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 resize-y font-mono"
           />
