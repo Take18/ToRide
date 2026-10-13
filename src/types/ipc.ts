@@ -35,7 +35,7 @@ export type AgentCapabilities = {
   initialPrompt: 'inject' | 'argument'
   /** prompt: 画像のパスをプロンプトに書いて読ませる / argument: 起動引数で添付する */
   imageInput: 'prompt' | 'argument'
-  /** コンテキスト使用量の取得元 */
+  /** コンテキスト使用量の取得元（statusline: Status Line Hook / transcript: セッションの記録ファイルを tail / none: 表示しない） */
   contextSource: 'statusline' | 'transcript' | 'none'
   /** セッション中に作成された PR URL を検知できるか */
   prDetection: boolean

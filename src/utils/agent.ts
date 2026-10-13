@@ -14,7 +14,7 @@ export function resolveDefaultAgent(
 /** 能力が足りないために使えない機能の一覧（カードのバッジ・設定画面に出す） */
 export function listMissingFeatures(capabilities: AgentCapabilities): string[] {
   const missing: string[] = []
-  if (capabilities.contextSource !== 'statusline') missing.push('コンテキスト表示（#77 で対応予定）')
+  if (capabilities.contextSource === 'none') missing.push('コンテキスト表示')
   if (!capabilities.prDetection) missing.push('PR URL の自動検知')
   if (!capabilities.rotation) missing.push('セッションローテーション（#78 で対応予定）')
   return missing

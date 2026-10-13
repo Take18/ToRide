@@ -15,6 +15,11 @@ function stripAnsi(data: string): string {
 
 export type ContextUpdateCallback = (info: ContextInfo) => void
 
+/** コンテキスト使用量の取得元（Status Line Hook・rollout ファイルの tail など） */
+export type ContextSource = {
+  onContextUpdate(cb: ContextUpdateCallback): unknown
+}
+
 export type AgentStartOptions = {
   prompt?: string
   launchMode?: LaunchMode
@@ -54,9 +59,12 @@ export class ClaudeService {
     this.terminalService = terminalService
     this.isRotationEnabled = isRotationEnabled
     this.notify = notify
-    contextLineService?.onContextUpdate((info) => {
-      this.fireContextUpdate(info)
-    })
+    if (contextLineService) this.attachContextSource(contextLineService)
+  }
+
+  // 取得元ごとに別の経路を作らず、すべて fireContextUpdate のゲートと閾値通知を通す
+  attachContextSource(source: ContextSource): void {
+    source.onContextUpdate((info) => this.fireContextUpdate(info))
   }
 
   start(taskId: string, workdir: string, provider: AgentProvider, opts: AgentStartOptions = {}): void {
@@ -150,12 +158,15 @@ export class ClaudeService {
     this.lastEmittedMax.set(taskId, 0)
     this.cleanBuffers.set(taskId, '')
 
-    this.terminalService.onData(taskId, (data) => {
-      const info = this.parseContext(taskId, data)
-      if (info) {
-        this.fireContextUpdate(info)
-      }
-    })
+    // stdout パースは Claude Code の表示に合わせたフォールバック。他のエージェントでは誤検知しかしない
+    if (provider.parseStdoutContext) {
+      this.terminalService.onData(taskId, (data) => {
+        const info = this.parseContext(taskId, data)
+        if (info) {
+          this.fireContextUpdate(info)
+        }
+      })
+    }
   }
 
   // InjectStep を順に実行する。waitFor が時間内に出なければ以降は送らずに知らせる
@@ -199,7 +210,7 @@ export class ClaudeService {
     })
   }
 
-  // statusline・regex 両ソース共通の更新ゲート
+  // statusline・rollout・regex すべてのソース共通の更新ゲート
   // 前回通知値より大きい場合のみ下流へ流す（サブエージェントや小さいデルタを除去）
   private fireContextUpdate(info: ContextInfo): void {
     const prevMax = this.lastEmittedMax.get(info.taskId) ?? 0

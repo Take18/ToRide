@@ -10,6 +10,7 @@ const CAPABILITIES: AgentCapabilities = {
   presetSessionId: false,
   initialPrompt: 'argument',
   imageInput: 'argument',
+  // statusline に当たるフックが無いため、SessionStart hook で受け取った rollout ファイルを tail する
   contextSource: 'transcript',
   prDetection: false,
   planMode: 'slash',

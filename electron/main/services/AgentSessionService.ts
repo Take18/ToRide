@@ -3,7 +3,7 @@ import type { LocalHttpServer } from './LocalHttpServer'
 export type AgentSessionInfo = {
   taskId: string
   sessionId: string
-  /** セッションの記録ファイル（Codex の rollout）。コンテキスト表示（#77）で読む */
+  /** セッションの記録ファイル（Codex の rollout）。tail してコンテキスト使用量を読む（TranscriptContextService） */
   transcriptPath?: string
 }
 
