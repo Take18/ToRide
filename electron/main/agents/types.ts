@@ -1,22 +1,6 @@
-import type { AgentId, ClaudeModel, LaunchMode } from '../../../src/types/ipc'
+import type { AgentCapabilities, AgentId, ClaudeModel, LaunchMode } from '../../../src/types/ipc'
 
-// エージェントごとの能力差。足りない能力は機能を黙って消さず、画面に理由を出すために使う
-export type AgentCapabilities = {
-  /** pty: TUI を PTY で動かす / http: HTTP サーバー経由で操作する（opencode を想定） */
-  driver: 'pty' | 'http'
-  /** セッションIDを起動前に ToRide 側で採番して渡せるか */
-  presetSessionId: boolean
-  /** inject: TUI 起動検知後に入力欄へ書き込む / argument: 起動引数で渡す */
-  initialPrompt: 'inject' | 'argument'
-  /** コンテキスト使用量の取得元 */
-  contextSource: 'statusline' | 'transcript' | 'none'
-  /** セッション中に作成された PR URL を検知できるか */
-  prDetection: boolean
-  /** plan モードへの入り方 */
-  planMode: 'flag' | 'slash' | 'none'
-  /** セッションローテーションに対応しているか */
-  rotation: boolean
-}
+export type { AgentCapabilities }
 
 export type LaunchOptions = {
   taskId: string
@@ -24,6 +8,10 @@ export type LaunchOptions = {
   model?: ClaudeModel
   /** presetSessionId のエージェントで、起動前に採番したID */
   sessionId?: string
+  /** initialPrompt が argument のエージェントは起動引数に載せる（inject のエージェントは無視する） */
+  prompt?: string
+  /** imageInput が argument のエージェントは起動引数で添付する */
+  images?: string[]
 }
 
 export type AgentCommand = {
@@ -35,19 +23,37 @@ export type AgentCommand = {
 
 export type AgentReadiness = { ok: true } | { ok: false; reason: string }
 
+/**
+ * 起動後に TUI へ送る入力の手順。上から順に実行する。
+ * waitFor が timeoutMs 以内に出なければ、以降の手順は送らずに notice を通知する
+ */
+export type InjectStep =
+  | { write: string }
+  | { delayMs: number }
+  | { waitFor: RegExp; timeoutMs: number; notice: string }
+
 export interface AgentProvider {
   id: AgentId
   /** 通知などに出す表示名 */
   displayName: string
   capabilities: AgentCapabilities
+  /** 起動ボタンで選べるモード */
+  launchModes: LaunchMode[]
   /** 起動前の確認（未ログインで TUI を立ち上げて ready を誤判定するのを防ぐ） */
   checkReady(): Promise<AgentReadiness>
   buildCommand(opts: LaunchOptions): AgentCommand
   buildResumeCommand(sessionId: string, opts: LaunchOptions): AgentCommand
+  /** 新規起動のあと TUI に送る入力。送るものがなければ空配列 */
+  buildInitialInput(opts: LaunchOptions): InjectStep[]
   listModels(): Promise<string[]>
   /**
-   * initialPrompt が inject のエージェントで、注入してはいけない画面の検出パターン。
-   * 照合対象は ANSI エスケープと空白を除いた PTY 出力。blockedBy が出たら unblockedBy が出るまで注入しない
+   * 入力を受け付ける状態になったことの検出パターン（照合対象は ANSI と空白を除いた PTY 出力）。
+   * 未指定なら bracketed paste mode の有効化（\x1b[?2004h）で判定する
+   */
+  readyPattern?: RegExp
+  /**
+   * 注入してはいけない画面の検出パターン。照合対象は ANSI エスケープと空白を除いた PTY 出力。
+   * blockedBy が出たら unblockedBy が出るまで注入しない。注入するものがなくても、出たことは通知する
    */
   injectGuard?: InjectGuard
 }

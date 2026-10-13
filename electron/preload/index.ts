@@ -13,7 +13,11 @@ import type {
   SlashCommandInfo,
   NavigationPayload,
   NotificationRecord,
-  GitHubTokenVerifyResult
+  GitHubTokenVerifyResult,
+  AgentId,
+  AgentInfo,
+  CodexStatus,
+  CodexTrustResult
 } from '../../src/types/ipc'
 
 const api = {
@@ -76,7 +80,7 @@ const api = {
       ipcRenderer.invoke('claude:start', { taskId, workdir, prompt, cols, rows, launchMode, model }),
     resume: (taskId: string, cols?: number, rows?: number, launchMode?: LaunchMode, model?: ClaudeModel): Promise<void> =>
       ipcRenderer.invoke('claude:resume', { taskId, cols, rows, launchMode, model }),
-    listModels: (): Promise<string[]> => ipcRenderer.invoke('claude:list-models'),
+    listModels: (agentId?: AgentId): Promise<string[]> => ipcRenderer.invoke('claude:list-models', agentId),
     listCommands: (workdir?: string): Promise<SlashCommandInfo[]> =>
       ipcRenderer.invoke('claude:list-commands', workdir),
     onContextUpdate: (callback: (info: ContextInfo) => void): (() => void) => {
@@ -84,6 +88,15 @@ const api = {
       ipcRenderer.on('claude:context-update', listener)
       return () => ipcRenderer.removeListener('claude:context-update', listener)
     },
+  },
+
+  agents: {
+    list: (): Promise<AgentInfo[]> => ipcRenderer.invoke('agents:list'),
+  },
+
+  codex: {
+    status: (refresh?: boolean): Promise<CodexStatus> => ipcRenderer.invoke('codex:status', { refresh }),
+    trustPanes: (): Promise<CodexTrustResult> => ipcRenderer.invoke('codex:trust-panes'),
   },
 
   devserver: {

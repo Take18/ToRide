@@ -1,7 +1,8 @@
-import type { AgentId } from '../../../src/types/ipc'
+import type { AgentId, AgentInfo } from '../../../src/types/ipc'
+import { DEFAULT_AGENT_ID } from '../../../src/utils/agent'
 import type { AgentProvider } from './types'
 
-export const DEFAULT_AGENT_ID: AgentId = 'claude'
+export { DEFAULT_AGENT_ID }
 
 export class AgentRegistry {
   private providers = new Map<AgentId, AgentProvider>()
@@ -16,5 +17,15 @@ export class AgentRegistry {
     const provider = this.providers.get(resolved)
     if (!provider) throw new Error(`UNKNOWN_AGENT: ${resolved}`)
     return provider
+  }
+
+  /** 画面に出す一覧（タスクフォームの選択肢・設定画面の能力一覧） */
+  list(): AgentInfo[] {
+    return [...this.providers.values()].map((p) => ({
+      id: p.id,
+      displayName: p.displayName,
+      capabilities: p.capabilities,
+      launchModes: p.launchModes,
+    }))
   }
 }

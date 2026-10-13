@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import type { TaskType, RuntimeTask, ReviewTask, RotationConfig } from '../../types/task'
-import type { RepoConfig } from '../../types/ipc'
+import type { AgentId, AgentInfo, AppSettings, RepoConfig } from '../../types/ipc'
+import { DEFAULT_AGENT_ID, resolveDefaultAgent } from '../../utils/agent'
 import type { TicketProviderMeta } from '../../types/plugin'
 import { useTaskStore } from '../../stores/taskStore'
 import { BranchCombobox } from '../Common/BranchCombobox'
@@ -14,6 +15,7 @@ type Props = {
 
 const INITIAL_FORM = {
   type: 'feat' as TaskType,
+  agent: DEFAULT_AGENT_ID as AgentId,
   title: '',
   repoId: '',
   branch: '',
@@ -34,6 +36,7 @@ const INITIAL_FORM = {
 function taskToForm(task: RuntimeTask) {
   return {
     type: task.type,
+    agent: task.agent ?? DEFAULT_AGENT_ID,
     title: task.title,
     repoId: task.repoId ?? '',
     depends_on: task.depends_on ?? '',
@@ -65,6 +68,10 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
   // PR URL から取得した際の prStatus（作成時にそのまま保存してバッジを即時表示する）
   const [fetchedPrStatus, setFetchedPrStatus] = useState('')
   const [providers, setProviders] = useState<TicketProviderMeta[]>([])
+  const [agents, setAgents] = useState<AgentInfo[]>([])
+  const [agentSettings, setAgentSettings] = useState<Pick<AppSettings, 'defaultAgentId' | 'agentDefaults'> | null>(null)
+  // 新規作成でエージェントを手で選んだら、タイプを変えても既定値で上書きしない
+  const agentTouchedRef = useRef(false)
   const tasks = useTaskStore((s) => s.tasks)
   const createTask = useTaskStore((s) => s.createTask)
   const updateTask = useTaskStore((s) => s.updateTask)
@@ -172,7 +179,11 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
       setIsDragging(false)
       newlyImportedRef.current = []
       removedOriginalsRef.current = []
+      agentTouchedRef.current = false
+      setAgentSettings(null)
+      window.api.agents.list().then(setAgents).catch(() => setAgents([]))
       window.api.settings.get().then((settings) => {
+        setAgentSettings({ defaultAgentId: settings.defaultAgentId, agentDefaults: settings.agentDefaults })
         const allRepos = settings.repos ?? []
         setRepos(allRepos)
         if (allRepos.length === 0) {
@@ -188,6 +199,13 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
       window.api.ticket.providers().then(setProviders).catch(() => setProviders([]))
     }
   }, [isOpen, editTask])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 新規作成では、タイプに応じた既定のエージェントを選んでおく（タイプ別 → 全体 → claude）
+  useEffect(() => {
+    if (!isOpen || editTask || !agentSettings || agentTouchedRef.current) return
+    const agent = resolveDefaultAgent(agentSettings, form.type)
+    setForm((prev) => (prev.agent === agent ? prev : { ...prev, agent }))
+  }, [isOpen, editTask, agentSettings, form.type])
 
   useEffect(() => {
     if (!isOpen) return
@@ -209,6 +227,10 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
   const set = (key: string, value: string | boolean) => {
     setForm((prev) => ({ ...prev, [key]: value }))
   }
+
+  const selectedAgent = agents.find((a) => a.id === form.agent)
+  // 一覧の取得前は対応扱いにする（claude のタスクで一瞬無効表示になるのを防ぐ）
+  const rotationSupported = selectedAgent ? selectedAgent.capabilities.rotation : true
 
   // スラッシュコマンド補完でプロジェクト定義を拾うための作業ディレクトリ。
   // chore / orchestrate は入力された directory、それ以外はリポジトリ先頭ペインのパス
@@ -273,6 +295,7 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
     if (editTask) {
       const common = {
         title: form.title,
+        agent: form.agent,
         ...(form.type !== 'chore' ? { repoId: form.repoId || undefined } : {}),
         depends_on: form.depends_on || undefined,
         prompt: form.prompt || undefined,
@@ -293,6 +316,7 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
     } else {
       const base = {
         title: form.title,
+        agent: form.agent,
         pane: '',
         status: 'will_do' as const,
         ...(form.depends_on ? { depends_on: form.depends_on } : {}),
@@ -412,6 +436,23 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
                   <option value="orchestrate">orchestrate</option>
                 </select>
               )}
+            </div>
+
+            {/* Agent（タスクの属性。起動ボタンで選ぶのはモードとモデルだけ） */}
+            <div>
+              <label className={labelClass}>エージェント</label>
+              <select
+                value={form.agent}
+                onChange={(e) => {
+                  agentTouchedRef.current = true
+                  set('agent', e.target.value)
+                }}
+                className={inputClass}
+              >
+                {(agents.length > 0 ? agents : [{ id: DEFAULT_AGENT_ID, displayName: 'Claude' }]).map((a) => (
+                  <option key={a.id} value={a.id}>{a.displayName}</option>
+                ))}
+              </select>
             </div>
 
             {/* Repository (chore 以外 / orchestrate はリポジトリのみ選択) */}
@@ -653,16 +694,21 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
             )}
 
             {/* セッションローテーション */}
-            <div className="border border-gray-700 rounded p-3 space-y-2">
+            <fieldset disabled={!rotationSupported} className="border border-gray-700 rounded p-3 space-y-2 disabled:opacity-60">
               <label className="flex items-center gap-2 text-xs text-gray-300">
                 <input
                   type="checkbox"
-                  checked={form.rotationEnabled}
+                  checked={rotationSupported && form.rotationEnabled}
                   onChange={(e) => set('rotationEnabled', e.target.checked)}
                   className="accent-blue-500"
                 />
                 セッションローテーションを有効にする
               </label>
+              {!rotationSupported && (
+                <p className="text-[11px] text-yellow-300 leading-relaxed">
+                  {selectedAgent?.displayName ?? form.agent} はセッションローテーションに未対応のため、有効にできません（#78 で対応予定）。
+                </p>
+              )}
               <p className="text-[11px] text-gray-500 leading-relaxed">
                 コンテキストが閾値に達したら引き継ぎファイルを書かせてセッションを作り直します。
                 空欄の項目は設定画面のグローバル既定値が使われます。
@@ -699,7 +745,7 @@ export default function TaskForm({ isOpen, onClose, editTask }: Props) {
                   className={inputClass}
                 />
               </div>
-            </div>
+            </fieldset>
 
             {/* Depends on */}
             <div>

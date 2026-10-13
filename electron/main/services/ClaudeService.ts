@@ -2,7 +2,7 @@ import type { TerminalService } from './TerminalService'
 import type { ContextLineService } from './ContextLineService'
 import type { ClaudeModel, ContextInfo, LaunchMode } from '../../../src/types/ipc'
 import type { NotifyInput } from './NotificationService'
-import type { AgentProvider } from '../agents/types'
+import type { AgentProvider, InjectStep } from '../agents/types'
 
 // ANSIエスケープシーケンスと CR を除去する
 function stripAnsi(data: string): string {
@@ -25,6 +25,8 @@ export type AgentStartOptions = {
   sessionId?: string
   /** 指定時は新規起動ではなく再開 */
   resumeSessionId?: string
+  /** imageInput が argument のエージェントに起動引数で渡す添付画像 */
+  images?: string[]
 }
 
 export class ClaudeService {
@@ -58,39 +60,46 @@ export class ClaudeService {
   }
 
   start(taskId: string, workdir: string, provider: AgentProvider, opts: AgentStartOptions = {}): void {
-    const { prompt, launchMode, model, cols, rows, sessionId, resumeSessionId } = opts
-    const launch = { taskId, launchMode, model, sessionId }
+    const { prompt, images, launchMode, model, cols, rows, sessionId, resumeSessionId } = opts
+    const launch = { taskId, launchMode, model, sessionId, prompt, images }
     const { command, env } = resumeSessionId
       ? provider.buildResumeCommand(resumeSessionId, launch)
       : provider.buildCommand(launch)
     this.terminalService.start(taskId, workdir, cols ?? 120, rows ?? 30, { ...env, TORIDE_TASK_ID: taskId })
     this.terminalService.write(taskId, `${command}\n`)
 
-    if (!resumeSessionId && prompt && provider.capabilities.initialPrompt === 'inject') {
-      let injected = false
-      // injectGuard の画面（フォルダ信頼確認など）が出ている間は true。注入の Enter で誤って選択させない
+    const steps = resumeSessionId ? [] : provider.buildInitialInput(launch)
+    const guard = provider.injectGuard
+    // 送るものがなくても、guard の画面（フォルダ信頼確認など）で止まっていることは知らせる
+    if (steps.length > 0 || guard) {
+      // 送るものがなければ最初から送信済みとして扱い、guard の監視だけ行う
+      let injected = steps.length === 0
+      // injectGuard の画面が出ている間は true。注入の Enter で誤って選択させない
       let blocked = false
       let screen = ''
-      const guard = provider.injectGuard
+      let readyScreen = ''
+
+      const finish = () => {
+        unsubReady()
+        clearTimeout(fallbackTimer)
+      }
 
       const tryInject = () => {
-        if (injected || blocked || !this.terminalService.hasSession(taskId)) return
+        if (injected) {
+          // 送るものがないまま12秒たった場合も、guard の画面が出ていなければ監視を終える
+          if (!blocked) finish()
+          return
+        }
+        if (blocked || !this.terminalService.hasSession(taskId)) return
         injected = true
-        unsubReady()
-        // テキストと Enter を分けて送ることで TUI がテキストを input field に
-        // レンダリングした後に \r (Enter) が届くようにする
-        this.terminalService.write(taskId, prompt)
-        setTimeout(() => {
-          if (this.terminalService.hasSession(taskId)) {
-            this.terminalService.write(taskId, '\r')
-          }
-        }, 200)
+        finish()
+        void this.runInjectSteps(taskId, steps)
       }
 
       const unsubReady = this.terminalService.onData(taskId, (data: string) => {
-        if (injected) return
+        const clean = stripAnsi(data).replace(/\s+/g, '')
         if (guard) {
-          screen = (screen + stripAnsi(data).replace(/\s+/g, '')).slice(-4000)
+          screen = (screen + clean).slice(-4000)
           if (!blocked && guard.blockedBy.test(screen)) {
             blocked = true
             // 解除の判定はダイアログより後の出力だけで行う
@@ -108,19 +117,32 @@ export class ClaudeService {
             blocked = false
             // ダイアログの選択を動かしたときの再描画が残っていると、次のチャンクで再びブロックしてしまう
             screen = ''
-            setTimeout(tryInject, 1000)
+            if (injected) {
+              finish()
+            } else {
+              setTimeout(tryInject, 1000)
+            }
             return
           }
         }
-        // TUI をレンダリングして入力待ちになると bracketed paste mode を有効化する
-        // \x1b[?2004h を検知したタイミングが inject の最適タイミング
-        if (data.includes('\x1b[?2004h')) {
+        if (blocked) return
+        readyScreen = (readyScreen + clean).slice(-4000)
+        const ready = provider.readyPattern
+          ? provider.readyPattern.test(readyScreen)
+          // TUI をレンダリングして入力待ちになると bracketed paste mode を有効化する
+          // \x1b[?2004h を検知したタイミングが inject の最適タイミング
+          : data.includes('\x1b[?2004h')
+        if (!ready) return
+        if (injected) {
+          // 送るものがない場合は、入力待ちまで来たら guard の監視も終える
+          finish()
+        } else {
           setTimeout(tryInject, 500)
         }
       })
 
       // フォールバック: 12秒以内に検知できなければ強制 inject（guard の画面が出ている間は見送る）
-      setTimeout(tryInject, 12000)
+      const fallbackTimer = setTimeout(tryInject, 12000)
     }
 
     this.notifiedThresholds.set(taskId, new Set())
@@ -133,6 +155,47 @@ export class ClaudeService {
       if (info) {
         this.fireContextUpdate(info)
       }
+    })
+  }
+
+  // InjectStep を順に実行する。waitFor が時間内に出なければ以降は送らずに知らせる
+  private async runInjectSteps(taskId: string, steps: InjectStep[]): Promise<void> {
+    for (const step of steps) {
+      if (!this.terminalService.hasSession(taskId)) return
+      if ('write' in step) {
+        this.terminalService.write(taskId, step.write)
+      } else if ('delayMs' in step) {
+        await new Promise((r) => setTimeout(r, step.delayMs))
+      } else {
+        const seen = await this.waitForOutput(taskId, step.waitFor, step.timeoutMs)
+        if (!seen) {
+          this.notify?.({
+            category: 'session',
+            level: 'warning',
+            title: '入力待ち',
+            body: step.notice,
+            navigation: { type: 'task', taskId },
+          })
+          return
+        }
+      }
+    }
+  }
+
+  // 呼び出した時点より後の出力（ANSI と空白を除く）に pattern が出るまで待つ
+  private waitForOutput(taskId: string, pattern: RegExp, timeoutMs: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      let buf = ''
+      const done = (seen: boolean) => {
+        clearTimeout(timer)
+        unsub()
+        resolve(seen)
+      }
+      const unsub = this.terminalService.onData(taskId, (data) => {
+        buf = (buf + stripAnsi(data).replace(/\s+/g, '')).slice(-4000)
+        if (pattern.test(buf)) done(true)
+      })
+      const timer = setTimeout(() => done(false), timeoutMs)
     })
   }
 

@@ -1,10 +1,12 @@
 import type { ModelListService } from '../services/ModelListService'
-import type { AgentCapabilities, AgentCommand, AgentProvider, AgentReadiness, LaunchOptions } from './types'
+import type { LaunchMode } from '../../../src/types/ipc'
+import type { AgentCapabilities, AgentCommand, AgentProvider, AgentReadiness, InjectStep, LaunchOptions } from './types'
 
 const CAPABILITIES: AgentCapabilities = {
   driver: 'pty',
   presetSessionId: true,
   initialPrompt: 'inject',
+  imageInput: 'prompt',
   contextSource: 'statusline',
   prDetection: true,
   planMode: 'flag',
@@ -15,6 +17,7 @@ export class ClaudeProvider implements AgentProvider {
   readonly id = 'claude' as const
   readonly displayName = 'Claude'
   readonly capabilities = CAPABILITIES
+  readonly launchModes: LaunchMode[] = ['normal', 'auto', 'bypass', 'plan']
   // 初めて開くフォルダでは信頼確認ダイアログが出る。既定の選択肢が「No, exit」なので、
   // ここに注入の Enter が届くと claude が終了してタスクが doing のまま止まる。
   // ダイアログを抜けるとウェルカムバナー（Claude Code vX.Y.Z）が描画される
@@ -40,6 +43,13 @@ export class ClaudeProvider implements AgentProvider {
     // claude --resume は cwd でセッションを検索するため、元のペインの workdir で起動すること
     const args = this.commonArgs(opts) + ` --resume ${sessionId}`
     return { command: `claude${args}`, env: this.env(opts) }
+  }
+
+  buildInitialInput({ prompt }: LaunchOptions): InjectStep[] {
+    if (!prompt) return []
+    // テキストと Enter を分けて送ることで TUI がテキストを input field に
+    // レンダリングした後に \r (Enter) が届くようにする
+    return [{ write: prompt }, { delayMs: 200 }, { write: '\r' }]
   }
 
   listModels(): Promise<string[]> {

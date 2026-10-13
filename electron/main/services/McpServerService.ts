@@ -5,7 +5,8 @@ import type { LocalHttpServer } from './LocalHttpServer.js'
 import type { TaskService } from './TaskService.js'
 import type { DevServerService } from './DevServerService.js'
 import type { RuntimeTask, Task } from '../../../src/types/task.js'
-import type { AppSettings, ClaudeModel, DevServerExitInfo, LaunchMode } from '../../../src/types/ipc.js'
+import type { AgentId, AppSettings, ClaudeModel, DevServerExitInfo, LaunchMode } from '../../../src/types/ipc.js'
+import { resolveDefaultAgent } from '../../../src/utils/agent.js'
 import { resolveDevServerUrl } from '../../../src/utils/devServerUrl.js'
 import { normalizePrUrl } from './DismissedPrService.js'
 
@@ -54,6 +55,7 @@ const summarizeTask = (
     type: task.type,
     status: task.status,
     title: task.title,
+    agent: task.agent ?? 'claude',
   }
   // 空文字の pane（orchestrate）や未設定フィールドは行数を食うだけなので落とす
   if (task.pane) out.pane = task.pane
@@ -152,7 +154,7 @@ export class McpServerService {
                 prompt: {
                   type: 'string',
                   description:
-                    'Claude に渡すプロンプト。省略すると設定済みのタスクタイプ別テンプレートが自動適用されるため、タスク固有の指示がなければ省略を推奨。' +
+                    'エージェントに渡すプロンプト。省略すると設定済みのタスクタイプ別テンプレートが自動適用されるため、タスク固有の指示がなければ省略を推奨。' +
                     '指定した場合はテンプレートの代わりにこのプロンプトが使われる。プロンプト内では {title} {branch} {ticket} {pr-url} {output} {directory} のテンプレート変数が起動時に展開されるため、' +
                     'title・branch・ticket 等の他フィールドの値を直書きせず変数で参照すること',
                 },
@@ -161,6 +163,13 @@ export class McpServerService {
                 output: { type: 'string', description: '出力先パス（type が design の場合は必須）' },
                 directory: { type: 'string', description: '作業ディレクトリ（type が chore の場合は必須）' },
                 depends_on: { type: 'string', description: '依存するタスクの ID。指定したタスクが完了するまでこのタスクを開始できない' },
+                agent: {
+                  type: 'string',
+                  enum: ['claude', 'codex'],
+                  description:
+                    'タスクを実行するエージェント。省略時は設定のタスクタイプ別の既定値（未設定なら全体の既定値、それも無ければ claude）。' +
+                    '作成後は start_task のモードとモデルの候補がこのエージェントのものになる',
+                },
               },
               required: ['type', 'title'],
             },
@@ -271,7 +280,7 @@ export class McpServerService {
           },
           {
             name: 'start_task',
-            description: 'タスクを起動する（doing 状態にして Claude を起動）。空きペインがない場合はエラーになる',
+            description: 'タスクを起動する（doing 状態にして、タスクに設定されたエージェントを起動する）。空きペインがない場合はエラーになる',
             inputSchema: {
               type: 'object' as const,
               properties: {
@@ -279,12 +288,17 @@ export class McpServerService {
                 launchMode: {
                   type: 'string',
                   enum: ['normal', 'auto', 'bypass', 'plan'],
-                  description: 'Claude の起動モード。省略時は設定値に従う。bypass=--dangerously-skip-permissions, auto=--permission-mode auto, plan=--permission-mode plan, normal=デフォルト',
+                  description:
+                    '起動モード。省略時は設定値に従う。' +
+                    'claude: bypass=--dangerously-skip-permissions, auto=--permission-mode auto, plan=--permission-mode plan, normal=デフォルト。' +
+                    'codex: bypass=--dangerously-bypass-approvals-and-sandbox, auto=--approve-for-me, plan=起動後に /plan で切り替え, normal=-s workspace-write -a on-request',
                 },
                 model: {
                   type: 'string',
                   description:
-                    'Claude のモデル。default（または省略）は --model 指定なし。エイリアス（opus / sonnet / haiku / fable 等）またはフルモデルID（claude-fable-5 等）を指定すると --model <値> で起動する',
+                    'モデル。default（または省略）はモデル指定なしでエージェントの既定モデルを使う。' +
+                    'claude はエイリアス（opus / sonnet / haiku / fable 等）またはフルモデルID（claude-fable-5 等）を --model で渡す。' +
+                    'codex は codex debug models の slug を -m で渡す',
                 },
               },
               required: ['id'],
@@ -425,12 +439,16 @@ export class McpServerService {
                   'ticket is required for feat/bugfix tasks. Provide the Wrike ticket URL, or ask the user for it if unknown.'
                 )
               }
+              if (rest.agent !== undefined && rest.agent !== 'claude' && rest.agent !== 'codex') {
+                throw new Error(`Unknown agent: ${String(rest.agent)}. Use claude or codex.`)
+              }
               const task = taskService.create({
                 type,
                 title,
                 status: status ?? 'will_do',
                 pane: pane ?? '',
                 ...rest,
+                agent: (rest.agent as AgentId | undefined) ?? resolveDefaultAgent(getSettings(), type),
               } as Omit<Task, 'id' | 'created_at'>)
               notifyTasksUpdated()
               return { content: [{ type: 'text' as const, text: toJson(summarizeTask(task, { detail: true })) }] }

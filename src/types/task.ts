@@ -53,6 +53,8 @@ export type BaseTask = {
   created_at?: string
   agent?: AgentId     // 実行エージェント（未指定は 'claude'）
   sessionId?: string  // エージェントのセッションID（再開に使う）
+  // セッションの記録ファイル（Codex の rollout）。SessionStart hook で受け取る。コンテキスト表示（#77）で使う
+  transcriptPath?: string
   prUrl?: string      // GitHub PR URL (auto-detected from terminal output)
   images?: string[]   // 添付画像の保存先パス（userData/task-images 配下）
   rotation?: RotationConfig  // セッションローテーション設定

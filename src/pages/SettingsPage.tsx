@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type {
+  AgentInfo,
   AppSettings,
   RepoConfig,
   PaneConfig,
@@ -11,6 +12,7 @@ import type { TicketProviderMeta, PluginCatalogEntry } from '../types/plugin'
 import ConfirmDialog from '../components/Common/ConfirmDialog'
 import Toast from '../components/Common/Toast'
 import { PromptTextarea } from '../components/Common/PromptTextarea'
+import { AgentDefaultsSection, CodexSection } from '../components/AgentSettings/AgentSettings'
 
 // args配列 ↔ テキスト変換をonBlurで行うinput
 function ArgsInput({
@@ -254,7 +256,7 @@ const DEFAULT_ORCHESTRATE_PROMPT = `あなたはタスクオーケストレー�
 - list_repos: リポジトリ一覧を取得（create_task の repoId に使う）
 - list_tasks: タスク一覧を取得してステータスを確認
 - create_task: タスクを新規作成（type: feat/bugfix/review/research/design/chore）
-- start_task: タスクを起動（Claude が自動実行を開始する）
+- start_task: タスクを起動（タスクに設定されたエージェントが自動実行を開始する）
 - update_task: タスクのステータス・内容を更新
 - delete_task: タスクを削除
 - notify_user: ユーザーのデスクトップに通知を送る（判断を仰ぎたいとき・警告が出たときのみ）
@@ -299,6 +301,7 @@ export default function SettingsPage() {
   const [statuslineLoading, setStatuslineLoading] = useState(false)
   const [mcpStatus, setMcpStatus] = useState<{ installed: boolean; url: string } | null>(null)
   const [mcpLoading, setMcpLoading] = useState(false)
+  const [agents, setAgents] = useState<AgentInfo[]>([])
 
   useEffect(() => {
     window.api.settings.get().then(setSettings)
@@ -307,6 +310,7 @@ export default function SettingsPage() {
     window.api.hooks.status().then(setHookStatus).catch(() => {})
     window.api.hooks.statuslineStatus().then(setStatuslineStatus).catch(() => {})
     window.api.mcp.status().then(setMcpStatus).catch(() => {})
+    window.api.agents.list().then(setAgents).catch(() => setAgents([]))
   }, [])
 
   const insertTemplateVariable = (type: string, variable: string) => {
@@ -915,6 +919,8 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        <CodexSection />
+
         {/* 通知設定 */}
         <section>
           <h2 className="text-sm font-semibold text-gray-300 mb-2">通知</h2>
@@ -930,9 +936,16 @@ export default function SettingsPage() {
           <p className="text-xs text-gray-500 mt-1 ml-7">タスク完了・コンテキスト警告・PR同期の通知を表示します</p>
         </section>
 
+        <AgentDefaultsSection agents={agents} settings={settings} setSettings={setSettings} />
+
         {/* Claude 起動オプション */}
         <section>
-          <h2 className="text-sm font-semibold text-gray-300 mb-2">Claude Code 起動オプション（デフォルト）</h2>
+          <h2 className="text-sm font-semibold text-gray-300 mb-2">起動モード（デフォルト）</h2>
+          <p className="text-xs text-gray-500 mb-3">
+            説明のフラグは Claude のもの。Codex では normal が <code className="text-gray-300">-s workspace-write -a on-request</code>、
+            auto が <code className="text-gray-300">--approve-for-me</code>、bypass が
+            <code className="text-gray-300"> --dangerously-bypass-approvals-and-sandbox</code> になります。
+          </p>
           <div className="space-y-2">
             {([
               { value: 'normal', label: 'normal', desc: 'パーミッション確認あり（デフォルト）', color: 'text-gray-300' },
