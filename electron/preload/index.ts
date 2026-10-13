@@ -194,6 +194,7 @@ const api = {
     list: (): Promise<NotificationRecord[]> => ipcRenderer.invoke('notifications:list'),
     markRead: (id: string): Promise<void> => ipcRenderer.invoke('notifications:markRead', id),
     markAllRead: (): Promise<void> => ipcRenderer.invoke('notifications:markAllRead'),
+    delete: (id: string): Promise<void> => ipcRenderer.invoke('notifications:delete', id),
     clear: (): Promise<void> => ipcRenderer.invoke('notifications:clear'),
     onUpdated: (callback: () => void): (() => void) => {
       const listener = (): void => callback()
