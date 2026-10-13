@@ -9,6 +9,7 @@ const CATEGORY_LABEL: Record<NotificationCategory, string> = {
   rotation: 'ローテーション',
   devserver: 'Dev Server',
   mcp: 'MCP',
+  session: 'セッション',
 }
 
 const LEVEL_DOT: Record<NotificationLevel, string> = {

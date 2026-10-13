@@ -14,13 +14,14 @@ const HOOK_CONTENT = `#!/bin/sh
 # このファイルは ToRide アプリが自動生成しました。
 # アプリの設定画面から管理できます。
 PORT_FILE="$HOME/.toride/port"
-if [ -z "$CLAUDE_TASK_ID" ] || [ ! -f "$PORT_FILE" ]; then
+TASK_ID="\${TORIDE_TASK_ID:-$CLAUDE_TASK_ID}"
+if [ -z "$TASK_ID" ] || [ ! -f "$PORT_FILE" ]; then
   exit 0
 fi
 PORT=$(cat "$PORT_FILE")
 curl -s -X POST "http://127.0.0.1:$PORT/task-done" \\
   -H "Content-Type: application/json" \\
-  -d "{\\"taskId\\":\\"$CLAUDE_TASK_ID\\"}" || true
+  -d "{\\"taskId\\":\\"$TASK_ID\\"}" || true
 `
 
 // ~/.claude/settings.json の hooks.Stop エントリ型
