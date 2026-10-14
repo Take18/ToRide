@@ -201,6 +201,14 @@ export class CodexProvider implements AgentProvider {
     return models
   }
 
+  // codex queue は実行中のセッションに割り込まず、今のターンが終わってから次のターンとして処理させる。
+  // 入力欄に書きかけがあっても消さない。閉じたセッションにも積めて、resume したときに処理される（0.154.0 で実測）
+  async queueMessage(sessionId: string, text: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+    const result = await runCodex(['queue', '--thread', sessionId, '--message', text], 30_000)
+    if (result.ok) return { ok: true }
+    return { ok: false, reason: `codex queue に失敗しました: ${result.message}` }
+  }
+
   // skills はリポジトリの .agents/skills・~/.agents/skills・$CODEX_HOME/skills/.system から読まれる（0.154.0 で実測）。
   // $ のあとに書くのはディレクトリ名ではなく frontmatter の name。
   // ~/.codex/prompts のカスタムプロンプトは deprecated で動かないので候補にしない

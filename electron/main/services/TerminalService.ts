@@ -11,6 +11,8 @@ export class TerminalService {
   private dataListeners: Map<string, Set<TerminalDataCallback>> = new Map()
   // 猶予後の SIGKILL タイマー（アプリ終了時にまとめて片付ける）
   private killTimers: Set<NodeJS.Timeout> = new Set()
+  // 最後に入力を書き込んだ時刻（TaskMessageService が「Stop のあと誰も入力していないか」を見るのに使う）
+  private lastWriteAt: Map<string, number> = new Map()
 
   start(taskId: string, workdir: string, cols = 120, rows = 30, extraEnv?: Record<string, string>): void {
     if (this.sessions.has(taskId)) {
@@ -33,6 +35,8 @@ export class TerminalService {
     })
 
     this.sessions.set(taskId, ptyProcess)
+    // 起動も入力として数える。前のセッションの Stop hook の時刻で、起動中の新セッションを入力待ちと誤認しないように
+    this.lastWriteAt.set(taskId, Date.now())
 
     ptyProcess.onData((data) => {
       const listeners = this.dataListeners.get(taskId)
@@ -60,6 +64,12 @@ export class TerminalService {
       throw new Error(`No terminal session for task: ${taskId}`)
     }
     session.write(data)
+    // フォーカスの通知（xterm が送る ESC [ I / ESC [ O）は入力ではないので数えない
+    if (data !== '\x1b[I' && data !== '\x1b[O') this.lastWriteAt.set(taskId, Date.now())
+  }
+
+  getLastWriteAt(taskId: string): number {
+    return this.lastWriteAt.get(taskId) ?? 0
   }
 
   /**
@@ -81,6 +91,7 @@ export class TerminalService {
     this.emit(taskId, '\r\n\x1b[33m[ToRide] セッションを終了しました\x1b[0m\r\n')
     this.sessions.delete(taskId)
     this.dataListeners.delete(taskId)
+    this.lastWriteAt.delete(taskId)
 
     if (immediate) {
       this.signal([...descendants, rootPid], 'SIGKILL')

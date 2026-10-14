@@ -9,8 +9,11 @@ const CLAUDE_SETTINGS_FILE = path.join(homedir(), '.claude', 'settings.json')
 
 const LEGACY_MARKERS = ['Claude Task Manager']
 
+// 受信箱（send_to_task）に対応した stop.sh の目印。古い stop.sh は応答を捨てるので、メッセージが届かない
+export const HOOK_MAILBOX_MARKER = 'toride-mailbox-v1'
+
 const HOOK_CONTENT = `#!/bin/sh
-# ToRide - Stop Hook
+# ToRide - Stop Hook (${HOOK_MAILBOX_MARKER})
 # このファイルは ToRide アプリが自動生成しました。
 # アプリの設定画面から管理できます。
 PORT_FILE="$HOME/.toride/port"
@@ -19,9 +22,15 @@ if [ -z "$TASK_ID" ] || [ ! -f "$PORT_FILE" ]; then
   exit 0
 fi
 PORT=$(cat "$PORT_FILE")
-curl -s -X POST "http://127.0.0.1:$PORT/task-done" \\
+# deliver: 受信箱にメッセージがあれば、ToRide は {"decision":"block",...} を返す。
+# stdout に出すと claude は止まらず、reason をメッセージとして次のターンに進む
+RESP=$(curl -s --max-time 5 -X POST "http://127.0.0.1:$PORT/task-done" \\
   -H "Content-Type: application/json" \\
-  -d "{\\"taskId\\":\\"$TASK_ID\\"}" || true
+  -d "{\\"taskId\\":\\"$TASK_ID\\",\\"deliver\\":true}") || exit 0
+case "$RESP" in
+  "{"*) printf '%s\\n' "$RESP" ;;
+esac
+exit 0
 `
 
 // ~/.claude/settings.json の hooks.Stop エントリ型
@@ -32,11 +41,19 @@ type ClaudeSettings = { hooks?: { Stop?: HookMatcher[] }; [key: string]: unknown
 export class StopHookService {
   // 1タスクに複数の購読者がいる（タスク完了通知 / SessionRotationService の idle 検知）ため Set で持つ
   private callbacks = new Map<string, Set<() => void>>()
+  private deliverer: ((taskId: string) => string | null) | null = null
 
   constructor(localServer: LocalHttpServer) {
     localServer.addRoute('/task-done', (body, res) => {
       try {
-        const { taskId } = JSON.parse(body) as { taskId?: string }
+        const { taskId, deliver } = JSON.parse(body) as { taskId?: string; deliver?: boolean }
+        // 受信箱を渡せたら claude はターンを続けるので、完了通知・idle 検知の購読者には知らせない
+        const response = taskId && deliver ? this.deliverer?.(taskId) ?? null : null
+        if (response) {
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(response)
+          return
+        }
         if (taskId) {
           // ターン終了のたびに通知するため、コールバックは削除せず維持する
           // （削除は removeTaskCallback / 購読解除関数に任せる）
@@ -53,12 +70,30 @@ export class StopHookService {
           }
         }
         res.writeHead(200)
-        res.end('ok')
+        // 新しい stop.sh は応答を stdout に流すので、渡すものがなければ空で返す
+        res.end(deliver ? '' : 'ok')
       } catch {
         res.writeHead(400)
         res.end('bad request')
       }
     })
+  }
+
+  /**
+   * Stop hook の応答で渡すものを返す関数を登録する（TaskMessageService）。
+   * 文字列を返すと、それを hook の stdout として返して購読者は呼ばない
+   */
+  setDeliverer(fn: (taskId: string) => string | null): void {
+    this.deliverer = fn
+  }
+
+  /** インストール済みの stop.sh が受信箱に対応しているか */
+  supportsMailbox(): boolean {
+    try {
+      return fs.readFileSync(HOOK_FILE, 'utf-8').includes(HOOK_MAILBOX_MARKER)
+    } catch {
+      return false
+    }
   }
 
   /** 購読を登録し、解除用の関数を返す（ContextLineService.onContextUpdate と同じ規約） */
@@ -165,7 +200,7 @@ export class StopHookService {
     }
   }
 
-  getHookStatus(): { installed: boolean; path: string; managedByApp: boolean; registeredInSettings: boolean } {
+  getHookStatus(): { installed: boolean; path: string; managedByApp: boolean; registeredInSettings: boolean; outdated: boolean } {
     const exists = fs.existsSync(HOOK_FILE)
     let managedByApp = false
     if (exists) {
@@ -178,6 +213,8 @@ export class StopHookService {
     }
     const settings = this.readClaudeSettings()
     const registeredInSettings = this.isRegisteredInSettings(settings)
-    return { installed: exists, path: HOOK_FILE, managedByApp, registeredInSettings }
+    // 受信箱に対応していない stop.sh は入れ直してもらう
+    const outdated = managedByApp && !this.supportsMailbox()
+    return { installed: exists, path: HOOK_FILE, managedByApp, registeredInSettings, outdated }
   }
 }

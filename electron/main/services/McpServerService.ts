@@ -9,6 +9,7 @@ import type { AgentId, AppSettings, ClaudeModel, DevServerExitInfo, LaunchMode }
 import { resolveDefaultAgent } from '../../../src/utils/agent.js'
 import { resolveDevServerUrl } from '../../../src/utils/devServerUrl.js'
 import { normalizePrUrl } from './DismissedPrService.js'
+import type { TaskMessageService } from './TaskMessageService.js'
 
 export type NotifyLevel = 'info' | 'question' | 'warning'
 
@@ -122,7 +123,8 @@ export class McpServerService {
     notifyUser?: (notification: McpUserNotification) => void,
     getRotationStatus?: (taskId: string) => unknown | null,
     dismissPr?: (target: { taskId?: string; url?: string }) => { url: string; deletedTaskIds: string[] },
-    listDismissedPrs?: () => Array<{ url: string; dismissedAt: string }>
+    listDismissedPrs?: () => Array<{ url: string; dismissedAt: string }>,
+    taskMessages?: Pick<TaskMessageService, 'send' | 'read'>
   ) {
     const createServer = (): Server => {
       const server = new Server(
@@ -372,6 +374,36 @@ export class McpServerService {
                 },
               },
               required: ['message'],
+            },
+          },
+          {
+            name: 'send_to_task',
+            description:
+              '実行中（doing）の別タスクのセッションにメッセージを送る。相手が Claude でも Codex でも使える。' +
+              '相手の作業には割り込まず、今のターンが終わってから届く（入力待ちならすぐ届く）。' +
+              '自分のタスクIDは環境変数 TORIDE_TASK_ID で分かるので from に入れること（相手が返信先を知るのに使う）。' +
+              'status: queued / pending は「積んだ」、notified は「入力待ちの相手に届けた」。相手が読んだかどうかまでは分からない',
+            inputSchema: {
+              type: 'object' as const,
+              properties: {
+                to: { type: 'string', description: '宛先のタスクID（list_tasks で確認可能）' },
+                from: { type: 'string', description: '自分のタスクID（環境変数 TORIDE_TASK_ID）' },
+                message: { type: 'string', description: 'メッセージ本文' },
+              },
+              required: ['to', 'message'],
+            },
+          },
+          {
+            name: 'read_messages',
+            description:
+              '自分宛てに send_to_task で届いたメッセージを受信箱から取り出す（読んだものは消える）。' +
+              '「[ToRide] 受信箱にメッセージが届いています」と言われたときに呼ぶ',
+            inputSchema: {
+              type: 'object' as const,
+              properties: {
+                task_id: { type: 'string', description: '自分のタスクID（合図に書かれている値、または環境変数 TORIDE_TASK_ID）' },
+              },
+              required: ['task_id'],
             },
           },
           {
@@ -626,6 +658,22 @@ export class McpServerService {
                 taskId: task?.id,
               })
               return { content: [{ type: 'text' as const, text: 'notified' }] }
+            }
+            case 'send_to_task': {
+              const { to, from, message } = args as { to?: string; from?: string; message?: string }
+              if (!taskMessages) throw new Error('send_to_task is not available')
+              if (typeof to !== 'string' || !to) throw new Error('to is required')
+              if (typeof message !== 'string' || !message.trim()) throw new Error('message is required')
+              const result = await taskMessages.send({ to, from: from || undefined, message: message.trim() })
+              return { content: [{ type: 'text' as const, text: toJson(result) }] }
+            }
+            case 'read_messages': {
+              const { task_id } = args as { task_id?: string }
+              if (!taskMessages) throw new Error('read_messages is not available')
+              if (typeof task_id !== 'string' || !task_id) throw new Error('task_id is required')
+              const messages = taskMessages.read(task_id)
+              const text = messages.length ? messages.join('\n\n---\n\n') : '(受信箱は空です)'
+              return { content: [{ type: 'text' as const, text }] }
             }
             case 'get_dev_server_log': {
               const { repoId, paneId, label, lines, grep } = args as {
