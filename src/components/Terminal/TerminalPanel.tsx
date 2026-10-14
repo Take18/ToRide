@@ -42,7 +42,10 @@ export default function TerminalPanel() {
     const existing = terminalsRef.current.get(taskId)
     if (existing) return existing
 
+    const { panelCols, panelRows } = useTerminalStore.getState()
     const terminal = new Terminal({
+      cols: panelCols,
+      rows: panelRows,
       cursorBlink: true,
       fontSize: 13,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
@@ -148,16 +151,13 @@ export default function TerminalPanel() {
     })
   }, [isOpen, activeTaskId])
 
-  // PTYデータ受信 → 該当タスクのxtermに書き込む（パネルが閉じていても受信する）
+  // 初回表示前もxtermに書き込み、後から開いたときのスクロール履歴を残す
   useEffect(() => {
     const unsub = window.api.terminal.onData((event) => {
-      const entry = terminalsRef.current.get(event.taskId)
-      if (entry) {
-        entry.terminal.write(event.data)
-      }
+      getOrCreateEntry(event.taskId).terminal.write(event.data)
     })
     return unsub
-  }, [])
+  }, [getOrCreateEntry])
 
   // タスク再起動時のターミナルリセット
   useEffect(() => {

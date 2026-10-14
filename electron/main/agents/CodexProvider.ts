@@ -226,7 +226,8 @@ export class CodexProvider implements AgentProvider {
   }
 
   private commonArgs({ launchMode, model }: LaunchOptions): string {
-    let args = ''
+    // xterm の通常バッファに履歴を残し、パネルを後から開いてもスクロールできるようにする
+    let args = ' --no-alt-screen'
     if (launchMode === 'bypass') {
       args += ' --dangerously-bypass-approvals-and-sandbox'
     } else if (launchMode === 'auto') {
