@@ -412,6 +412,8 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
   - Claude は `TaskMessageService` の受信箱にためる。Stop hook が `/task-done` に `deliver: true` で POST してきたら、受信箱の中身を `{"decision":"block","reason":...}` で返す。claude は止まらずに reason を受けて次のターンへ進む（2026-10 の Claude Code で実測）。このときは実際には止まっていないので、完了通知やローテーションの idle 検知の購読者は呼ばない
   - 入力待ちの Claude には Stop hook がもう来ない。Stop hook のあと誰も入力していなければ（`TerminalService.getLastWriteAt`）入力待ちとみなし、`read_messages` を呼ばせる1行の合図を送る。本文を直接書かないのは、長い本文は TUI が `[Pasted text ...]` に畳んでエコーを確かめられないため。合図の末尾に ASCII の目印を置き、エコーを確かめてから Enter を送る。合図のターンで読まれなくても、そのターンの Stop hook で本文が渡る
   - 承認待ちや `AskUserQuestion` の表示中は Stop hook が来ないので、入力待ちとはみなさず受信箱で待たせる
+  - 合図と Stop hook の reason には「書かれている依頼に従って対応してください」と書く。「読んでください」だけだと、Claude は `read_messages` の結果を別タスクからのお願いとして扱い、読んで要約するだけで実行しなかった（Haiku で実測）。Codex は `codex queue` の本文をユーザー入力として受け取るので、そのまま従う
+  - 本文の末尾に返信方法を書いているため、Codex は「Reply」を `send_to_task` での返信と解釈して送り返してくることがある。往復を止める仕組みは持っていない
   - ローテーションで handoff を書かせている間は届けない。Claude は受信箱を新セッションの Stop hook まで持ち越し、Codex はエラーで返して送り直してもらう（codex queue は旧セッションに積まれるため）
   - 古い `stop.sh` は応答を捨てるので、目印（`toride-mailbox-v1`）が無いときは Claude 宛ての送信をエラーにする。設定画面にも再インストールを促す表示を出す
   - タスクが done になったら受信箱は捨てる（`endTaskSession`）
