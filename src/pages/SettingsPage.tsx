@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type {
+  AgentId,
   AgentInfo,
   AppSettings,
   RepoConfig,
@@ -1344,6 +1345,18 @@ export default function SettingsPage() {
                 }
                 className={`${inputClass} w-24`}
               />
+            </div>
+            <div className="flex items-center gap-3">
+              <label htmlFor="github-review-agent" className="text-xs text-gray-400 whitespace-nowrap w-32">レビュー担当</label>
+              <select
+                id="github-review-agent"
+                value={settings.githubReviewAgentId ?? 'codex'}
+                onChange={(e) => setSettings((prev) => ({ ...prev, githubReviewAgentId: e.target.value as AgentId }))}
+                className={inputClass}
+              >
+                <option value="codex">Codex</option>
+                <option value="claude">Claude</option>
+              </select>
             </div>
           </div>
         </section>
