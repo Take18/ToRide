@@ -20,6 +20,7 @@ import { AgentRegistry } from './agents/AgentRegistry'
 import { ClaudeProvider } from './agents/ClaudeProvider'
 import { CodexProvider } from './agents/CodexProvider'
 import { AgentSessionService } from './services/AgentSessionService'
+import { TaskMessageService } from './services/TaskMessageService'
 import { CodexConfigService } from './services/CodexConfigService'
 import { registerAgentHandlers } from './ipc/agents'
 import { SlashCommandService } from './services/SlashCommandService'
@@ -381,6 +382,15 @@ app.whenReady().then(() => {
     supportsRotation: (task) => agentRegistry.get(task.agent).capabilities.rotation,
     usesPasteInput: (task) => agentRegistry.get(task.agent).pasteInput ?? false,
   })
+  // タスク間メッセージ（MCP の send_to_task）。Stop hook の応答で受信箱を渡すため stopHookService に登録される
+  const taskMessageService = new TaskMessageService({
+    taskService,
+    terminalService,
+    stopHookService,
+    getProvider: (task) => agentRegistry.get(task.agent),
+    isAwaitingHandoff: (taskId) => rotationService?.isAwaitingHandoff(taskId) ?? false,
+    notify: (input) => notificationService.notify(input),
+  })
   // 閾値判定はコンテキスト更新に相乗りする（Status Line Hook 経由が主系）
   claudeService.onContextUpdate((info) => rotationService?.onContextUpdate(info))
   // コンテキスト使用量を DB とレンダラーに流す。起動のたびに購読すると再起動・再開のたびに
@@ -398,6 +408,7 @@ app.whenReady().then(() => {
   const endTaskSession = (taskId: string) => {
     stopHookService.removeTaskCallback(taskId)
     rotationService?.clear(taskId)
+    taskMessageService.clear(taskId)
     claudeService.resetContextTracking(taskId)
     transcriptContextService.stop(taskId)
     terminalService.kill(taskId)
@@ -434,7 +445,7 @@ app.whenReady().then(() => {
     getWindow()?.webContents.send('tasks:updated')
   }, startTaskFn, notifyUserFromMcp, (taskId) => rotationService?.getStatus(taskId) ?? null,
     (target) => dismissReviewPr(taskService, dismissedPrService, target),
-    () => dismissedPrService.list())
+    () => dismissedPrService.list(), taskMessageService)
   const initialPort = getSettings().stopHookPort ?? 39457
   localHttpServer.start(initialPort).catch((e) => {
     console.error('[LocalHttpServer] failed to start:', e)

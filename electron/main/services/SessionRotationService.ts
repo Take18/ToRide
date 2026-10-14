@@ -147,6 +147,14 @@ export class SessionRotationService {
     return this.resolveConfig(task).enabled
   }
 
+  /**
+   * handoff を書かせている最中か。この間に届けたメッセージは旧セッションと一緒に捨てられるので、
+   * TaskMessageService は送らずに待つ（Claude）か断る（Codex）
+   */
+  isAwaitingHandoff(taskId: string): boolean {
+    return this.states.get(taskId)?.phase === 'awaiting_handoff'
+  }
+
   getStatus(taskId: string): RotationStatus | null {
     const task = this.deps.taskService.list().find((t) => t.id === taskId)
     if (!task) return null

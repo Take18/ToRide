@@ -267,7 +267,7 @@ export default function SettingsPage() {
   const [newExtraPath, setNewExtraPath] = useState('')
 
   const [, setImportResult] = useState<'ok' | 'cancelled' | 'error' | null>(null)
-  const [hookStatus, setHookStatus] = useState<{ installed: boolean; path: string; managedByApp: boolean; registeredInSettings: boolean } | null>(null)
+  const [hookStatus, setHookStatus] = useState<{ installed: boolean; path: string; managedByApp: boolean; registeredInSettings: boolean; outdated?: boolean } | null>(null)
   const [hookLoading, setHookLoading] = useState(false)
   const [statuslineStatus, setStatuslineStatus] = useState<{ installed: boolean; path: string; managedByApp: boolean; registeredInSettings: boolean } | null>(null)
   const [statuslineLoading, setStatuslineLoading] = useState(false)
@@ -770,6 +770,8 @@ export default function SettingsPage() {
               <span className="text-xs text-gray-400 w-16">状態</span>
               {hookStatus === null ? (
                 <span className="text-xs text-gray-500">確認中...</span>
+              ) : hookStatus.installed && hookStatus.managedByApp && hookStatus.registeredInSettings && hookStatus.outdated ? (
+                <span className="text-xs text-yellow-400">⚠️ 古い stop.sh です（再インストールすると send_to_task のメッセージを受け取れます）</span>
               ) : hookStatus.installed && hookStatus.managedByApp && hookStatus.registeredInSettings ? (
                 <span className="text-xs text-green-400">✅ インストール済み・settings.json 登録済み</span>
               ) : hookStatus.installed && hookStatus.managedByApp && !hookStatus.registeredInSettings ? (
@@ -783,7 +785,7 @@ export default function SettingsPage() {
             <div className="flex items-center gap-2 pt-1">
               <button
                 onClick={handleHookInstall}
-                disabled={hookLoading || (hookStatus?.installed && hookStatus?.managedByApp && hookStatus?.registeredInSettings)}
+                disabled={hookLoading || (hookStatus?.installed && hookStatus?.managedByApp && hookStatus?.registeredInSettings && !hookStatus?.outdated)}
                 className="px-4 py-1.5 rounded text-sm bg-green-700 hover:bg-green-600 text-white disabled:opacity-40"
               >
                 {hookLoading ? '処理中...' : 'インストール'}

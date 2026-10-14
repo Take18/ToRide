@@ -79,6 +79,11 @@ export interface AgentProvider {
    * 囲まないと本文中の改行がキー入力の Enter として届き、ピッカーなどの対話画面で選択を確定させてしまう
    */
   pasteInput?: boolean
+  /**
+   * 実行中のセッションに、今のターンが終わってから処理されるメッセージを積む（send_to_task）。
+   * 持たないエージェントは ToRide の受信箱にためて、Stop hook の応答で渡す（TaskMessageService）
+   */
+  queueMessage?(sessionId: string, text: string): Promise<{ ok: true } | { ok: false; reason: string }>
 }
 
 export type InjectGuard = {

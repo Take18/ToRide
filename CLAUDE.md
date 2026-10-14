@@ -53,6 +53,7 @@ electron/
       ResidentOrchestratorService.ts # 常駐オーケストレータの起票・起動
       AgentSessionService.ts # /agent-session エンドポイント（Codex の SessionStart hook からセッションIDを受け取る）
       CodexConfigService.ts # ~/.codex/config.toml の trust_level 読み書き
+      TaskMessageService.ts # タスク間メッセージ（send_to_task）の受信箱と配送
     agents/
       types.ts            # AgentProvider・AgentCapabilities の型
       ClaudeProvider.ts   # claude の起動コマンド組み立て・能力宣言・モデル一覧
@@ -175,7 +176,7 @@ src/
   - chore: `{directory}`
 - **Stop Hook**: `~/.claude/hooks/stop.sh` でタスク完了を検知・HTTP通知（設定画面からインストール）
 - **Status Line Hook**: `~/.claude/statusline.sh` で各APIレスポンス後にコンテキスト使用量をリアルタイム更新（設定画面からインストール）
-- **MCP サーバー**: `create_task` / `list_tasks` / `list_repos` / `update_task` / `delete_task` / `dismiss_pr` / `list_dismissed_prs` / `start_task` / `list_dev_servers` / `start_dev_server` / `stop_dev_server` / `get_dev_server_log` / `notify_user` / `get_rotation_status` ツールを公開（設定画面からインストール、`~/.claude/settings.json` に自動登録）
+- **MCP サーバー**: `create_task` / `list_tasks` / `list_repos` / `update_task` / `delete_task` / `dismiss_pr` / `list_dismissed_prs` / `start_task` / `list_dev_servers` / `start_dev_server` / `stop_dev_server` / `get_dev_server_log` / `notify_user` / `get_rotation_status` / `send_to_task` / `read_messages` ツールを公開（設定画面からインストール、`~/.claude/settings.json` に自動登録）
   - `start_task` は `launchMode` パラメータで起動モードを指定可能
   - `update_task` は `title` / `status` / `prompt` / `depends_on` / `rotation` を部分更新できる
   - `create_task` / `list_tasks` / `update_task` / `start_task` のレスポンスは要約のみ（`summarizeTask()`）。`list_tasks` は `id` で1件に絞れ、プロンプト本文は `include_prompt: true` のときだけ含まれる
@@ -184,6 +185,8 @@ src/
   - `notify_user` はタスク内のClaudeセッションが任意のタイミングでデスクトップ通知を送るツール（`message` 必須 / `level`: info・question・warning / `title` / `taskTitle` / `taskId`）。`taskTitle` からタスクを逆引きし、通知クリックで該当タスクへジャンプする
   - `get_rotation_status` はセッションローテーションの状態（使用率・閾値・回数・履歴・保留/停止）を返す。`update_task` の `rotation` で設定を変更できる
   - `dismiss_pr` はレビュー依頼PRの dismiss（PR自動同期の対象外にしてタスクを削除）。`id`（reviewタスクID）か `url`（PR URL）のどちらか一方を指定する。`url` 指定はタスクが無いPRにも先回りで使える
+  - `send_to_task` は実行中（doing）の別タスクにメッセージを送る。宛先が Claude でも Codex でも同じツールで送れて、Codex からも Claude に送れる。相手のターンには割り込まず、今のターンが終わってから届く。`from` に送信元のタスクID（環境変数 `TORIDE_TASK_ID`）を渡すと、本文の頭に送信元と返信方法が付く
+  - `read_messages` は自分宛ての受信箱を取り出す。入力待ちの Claude には「read_messages を呼んで」という1行の合図だけを送るので、受け取った側はこれを呼んで本文を読む
   - `list_dismissed_prs` は dismiss 済みPRを新しい順に返す（`url` / `dismissedAt`）。`url` を渡すと そのPRが dismiss 済みかだけを確認できる。close/merge されたPRは同期時に記録が消えるため、残るのはオープンなPRだけ
 
 ### Codex CLI 対応
@@ -349,7 +352,7 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 
 | 項目 | ファイル | 説明 |
 |---|---|---|
-| Stop Hook | `~/.claude/hooks/stop.sh` | タスク完了時にHTTP通知を送信 |
+| Stop Hook | `~/.claude/hooks/stop.sh` | タスク完了時にHTTP通知を送信。受信箱にメッセージがあれば応答で受け取って claude に渡す |
 | Status Line Hook | `~/.claude/statusline.sh` | 各APIレスポンス後にコンテキスト使用量を更新 |
 | MCP Server | `~/.claude/settings.json` の `mcpServers` | Claude Codeからタスク操作を可能にする |
 
@@ -404,6 +407,14 @@ auto-compact は「圧縮結果がまた履歴に積まれて底が上がる」�
 - **MCPのタスクレスポンスは要約に固定**: `RuntimeTask` をそのまま返すと `prompt` 全文・`images`・`rotation.history`（ローテーションのたびに積まれる）・`sessionId` が毎回乗り、status を1つ変えるだけの `update_task` でもコンテキストを大きく食う。`summarizeTask()` で「どのタスクか」と「今どうなっているか」に要るフィールドだけに絞り、`contextUsed`/`contextLimit` は `contextPercent` 1つに畳み、`JSON.stringify` のインデントも付けない。`list_tasks` からプロンプト本文を落とした代わりに `id` 絞り込みと `include_prompt` を用意して、必要なときだけ1件分取れるようにしている
 - **開発サーバーログの返却量**: MCPレスポンスがコンテキストを食い潰さないよう `get_dev_server_log` は既定100行・最大1000行に切り詰める。`grep` は先に行フィルタしてから末尾N行を取る
 - **dismiss は `dismissReviewPr()` に集約**: UI（`github:dismiss-pr` IPC）と MCP（`dismiss_pr`）の両方から呼ぶため、`DismissedPrService.ts` の関数1本にまとめている。URLは `normalizePrUrl()` で `html_url` と同じ形（`/files` や `#discussion_r...` を落とす）に正規化してから登録する。正規化しないと同期側の `dismissedUrls.has(pr.html_url)` に一致せずタスクが再作成され、close/merge 判定のAPI呼び出しも失敗してレコードが永久に残る。同じPRを指す review タスクは複数あってもまとめて削除する
+- **タスク間メッセージの届け方**: `send_to_task` はどの経路でも「相手の今のターンが終わってから届く」形にそろえている。ターンの途中に PTY へ書き込むと、承認待ちや `AskUserQuestion` の画面に Enter が届いて誤って確定させるため。届け方は `AgentProvider.queueMessage` の有無で切り替える
+  - Codex は `codex queue --thread <sessionId>` で積む。作業中なら今のターンのあとに処理され、入力欄の書きかけも消えない。閉じたセッションにも積めて resume したときに処理される（0.154.0 で実測）。止めたタスクに届くのを防ぐため、宛先は doing に限る
+  - Claude は `TaskMessageService` の受信箱にためる。Stop hook が `/task-done` に `deliver: true` で POST してきたら、受信箱の中身を `{"decision":"block","reason":...}` で返す。claude は止まらずに reason を受けて次のターンへ進む（2026-10 の Claude Code で実測）。このときは実際には止まっていないので、完了通知やローテーションの idle 検知の購読者は呼ばない
+  - 入力待ちの Claude には Stop hook がもう来ない。Stop hook のあと誰も入力していなければ（`TerminalService.getLastWriteAt`）入力待ちとみなし、`read_messages` を呼ばせる1行の合図を送る。本文を直接書かないのは、長い本文は TUI が `[Pasted text ...]` に畳んでエコーを確かめられないため。合図の末尾に ASCII の目印を置き、エコーを確かめてから Enter を送る。合図のターンで読まれなくても、そのターンの Stop hook で本文が渡る
+  - 承認待ちや `AskUserQuestion` の表示中は Stop hook が来ないので、入力待ちとはみなさず受信箱で待たせる
+  - ローテーションで handoff を書かせている間は届けない。Claude は受信箱を新セッションの Stop hook まで持ち越し、Codex はエラーで返して送り直してもらう（codex queue は旧セッションに積まれるため）
+  - 古い `stop.sh` は応答を捨てるので、目印（`toride-mailbox-v1`）が無いときは Claude 宛ての送信をエラーにする。設定画面にも再インストールを促す表示を出す
+  - タスクが done になったら受信箱は捨てる（`endTaskSession`）
 - **notify_userのタスク解決**: セッションが自分のタスクIDを知らなくても通知できるよう、`taskTitle` からdoingタスク優先で完全一致→部分一致で逆引きする。解決できなければ通知は出しクリック時はウィンドウフォーカスのみ
 - **モデル一覧**: `/v1/models` から動的取得し、失敗時は opus/sonnet/haiku にフォールバック（ModelListService）
 - **スラッシュコマンド候補のスキャン**: `~/.claude/skills` はシンボリックリンクで貼られることが多く `Dirent.isDirectory()` が false になるため、リンクは `stat` で辿り直す。frontmatter の `description` はブロックスカラー（`|` / `>`）もあるので最初の段落だけ取り出す。SKILL.md は大きいので先頭4KBのみ読む
