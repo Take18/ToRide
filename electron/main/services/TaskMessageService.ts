@@ -10,6 +10,9 @@ import type { RuntimeTask } from '../../../src/types/task'
 const ECHO_WAIT_MS = 200
 const ECHO_BUFFER_LEN = 4000
 
+// Stop hook の reason の頭に付ける。付けないと、別タスクからのお願いとして読むだけで実行しないことがある
+const DELIVERY_PREFIX = '以下は ToRide 経由で届いた別タスクからの依頼です。内容に従って対応してください。'
+
 type Message = { text: string; at: number }
 
 export type SendResult =
@@ -123,7 +126,8 @@ export class TaskMessageService {
       return null
     }
     this.mailboxes.delete(taskId)
-    return JSON.stringify({ decision: 'block', reason: box.map((m) => m.text).join('\n\n---\n\n') })
+    const body = box.map((m) => m.text).join('\n\n---\n\n')
+    return JSON.stringify({ decision: 'block', reason: `${DELIVERY_PREFIX}\n\n${body}` })
   }
 
   /**
@@ -153,7 +157,7 @@ export class TaskMessageService {
     try {
       // エコー照合に使う ASCII の目印を最後に置く（日本語は全角幅で折り返し位置がずれるため照合に使わない）
       const marker = `[toride-msg:${randomBytes(4).toString('hex')}]`
-      const notice = `[ToRide] 受信箱にメッセージが届いています。ToRide の read_messages を task_id="${task.id}" で呼んで読んでください ${marker}`
+      const notice = `[ToRide] 受信箱にメッセージが届いています。ToRide の read_messages を task_id="${task.id}" で呼んで読み、書かれている依頼に従って対応してください ${marker}`
       const payload = this.deps.getProvider(task).pasteInput ? `\x1b[200~${notice}\x1b[201~` : notice
       // ここから write までの間に await を挟まない（前の出力が混ざってエコー照合が偽陽性になる）
       terminalService.write(task.id, payload)
