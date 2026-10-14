@@ -5,7 +5,6 @@ import type { TaskService } from '../services/TaskService'
 import { dismissReviewPr, type DismissedPrService } from '../services/DismissedPrService'
 import type { AppSettings, GitHubTokenVerifyResult } from '../../../src/types/ipc'
 import type { ReviewTask } from '../../../src/types/task'
-import { resolveDefaultAgent } from '../../../src/utils/agent'
 import { buildRepoFullNameMap, extractFullNameFromPrUrl, listRepoFullNames } from '../utils/repoMap'
 import {
   listSearchTokens,
@@ -149,7 +148,7 @@ export async function syncReviewPRs(
       repoId,
       url: pr.html_url,
       prStatus: pr.state as ReviewTask['prStatus'],
-      agent: resolveDefaultAgent(settings, 'review'),
+      agent: settings.githubReviewAgentId ?? 'codex',
     } as Omit<ReviewTask, 'id' | 'created_at'>)
     createdTaskIds.push(newTask.id)
     created++

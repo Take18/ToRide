@@ -219,6 +219,7 @@ feature-name  ↑2 ↓0  (未コミット: 3ファイル)
 GitHub API でレビュー依頼されている PR を定期取得し、未起票のものを `review` タスクとして自動作成。
 
 - 同期間隔は設定画面で変更可能（デフォルト 5 分）
+- 自動作成するレビュータスクのエージェントは設定画面で Codex / Claude から選択可能（デフォルト Codex）。変更は新規タスクに適用
 - 手動で「今すぐ同期」ボタンから即時実行も可能
 - 重複タスク・アーカイブ済みのものは自動スキップ
 - PR のリポジトリを git リモート URL と突き合わせて `repoId` を自動解決
@@ -450,6 +451,7 @@ cp settings.example.json my-settings.json
 | `githubPat` | `string` | GitHub Personal Access Token（暗号化保存）。Classic PAT なら `repo` スコープ、Fine-grained PAT なら Pull requests / Metadata の Read-only が必要 |
 | `githubUsername` | `string` | GitHub ユーザー名（PR 自動同期用） |
 | `githubPrSyncIntervalMin` | `number` | PR 自動同期間隔（分、デフォルト `5`） |
+| `githubReviewAgentId` | `AgentId` | PR 自動同期で作成するレビュータスクのエージェント（`codex` または `claude`、デフォルト `codex`） |
 | `useDangerouslySkipPermissions` | `boolean` | `claude --dangerously-skip-permissions` で起動（デフォルト `false`） |
 | `useAutoMode` | `boolean` | `claude --permission-mode auto` で起動（デフォルト `false`） |
 | `promptTemplates` | `object` | タスクタイプ別の初期プロンプトテンプレート |

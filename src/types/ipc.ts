@@ -140,6 +140,7 @@ export type AppSettings = {
   githubTokens?: GitHubTokenEntry[]  // owner / owner/repo 単位のトークン（safeStorageで暗号化して保存）
   githubUsername?: string  // GitHub ユーザー名（PR自動同期用）
   githubPrSyncIntervalMin?: number  // PR同期間隔（分、デフォルト5）
+  githubReviewAgentId?: AgentId  // PR自動同期で作成するレビュータスクのエージェント（未設定は codex）
   useDangerouslySkipPermissions?: boolean  // claude --dangerously-skip-permissions で起動するか
   useAutoMode?: boolean  // claude --permission-mode auto で起動するか
   promptTemplates?: Record<string, string>  // タスクタイプ別プロンプトテンプレート
