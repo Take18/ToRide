@@ -517,3 +517,7 @@ curl -s -X POST "http://127.0.0.1:$PORT/task-done" \
     ├── pages/                    # ページコンポーネント
     └── types/                    # 型定義
 ```
+
+## 開発ドキュメント
+
+エージェント向けの作業ルールは [AGENTS.md](AGENTS.md) / [CLAUDE.md](CLAUDE.md)、機能・設定・設計判断の詳細は [docs/README.md](docs/README.md) を参照してください。
