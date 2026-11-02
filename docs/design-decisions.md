@@ -33,7 +33,7 @@
 - **起動処理は `createStartTaskFn` に1本化**: UI の `claude:start` も MCP の `start_task` もローテーションも同じ関数を通る。完了通知・PID 記録・PTY 出力のレンダラー転送は起動と再開で共通の `attachSession()` にまとめている。コンテキスト使用量の DB 保存とレンダラー送信は index.ts で `claudeService.onContextUpdate` を1本だけ購読して行う（起動のたびに購読すると再起動・再開のたびに積み上がり、同じ更新を回数分だけ流してしまう）
 - **タスクIDの env**: PTY には `TORIDE_TASK_ID` を渡し、インストール済みの古い `stop.sh` / `statusline.sh` のために `CLAUDE_TASK_ID` にも同じ値を入れる。新しく生成するスクリプトは `${TORIDE_TASK_ID:-$CLAUDE_TASK_ID}` で読む
 - **PTY管理**: `Map<taskId, IPty>` でセッションをライフサイクル全体で維持
-- **セッション終了は子孫プロセスまで**: `pty.kill()` はログインシェルにしかシグナルが届かず、claude が起動したバックグラウンドジョブが生き残って完了後も通知を出してくる。`TerminalService.kill()` は kill 前に `ps -eo pid=,ppid=` で子孫PIDを洗い出し（親を先に殺すと reparent されて辿れなくなる）、SIGTERM → 3秒後に生存分へ SIGKILL する。アプリ終了時の `killAll()` は setTimeout が発火しないので猶予なしの SIGKILL
+- **セッション終了は子孫プロセスと PTY まで**: `pty.kill()` はログインシェルにしかシグナルが届かず、PTY の FD も閉じない。claude が起動したバックグラウンドジョブが生き残って完了後も通知を出したり、PTY が残って新規起動を妨げたりする。`TerminalService.kill()` は kill 前に `ps -eo pid=,ppid=` で子孫PIDを洗い出し（親を先に殺すと reparent されて辿れなくなる）、SIGTERM → 3秒後に生存分へ SIGKILL する。シェルへシグナルを送ったあと `pty.destroy()` で FD を閉じる。アプリ終了時の `killAll()` は setTimeout が発火しないので猶予なしの SIGKILL
 - **完了時のセッション終了フックは `TaskService` に集約**: done にする経路が UI / 通知 / MCP と複数あるため、`TaskService.onStatusChange` / `onDeleted` を index.ts で1本だけ購読して `stopHook.removeTaskCallback` → `rotation.clear` → `resetContextTracking` → `terminal.kill` を実行する。各呼び出し元に散らすと必ず取りこぼす
 - **セッションID**: タスク起動時にUUIDを生成し `--session-id` でClaudeに渡す。`claude --resume <uuid>` で完了後も再開可能
 - **resume時のworkdir**: `claude --resume` はcwdでセッションを検索するため、元のpaneのworkdirを使用
