@@ -133,7 +133,10 @@ export default function PaneStatusSidebar() {
                     <span className={running ? 'text-green-400' : 'text-gray-500'}>
                       {running ? '\u25CF' : '\u25CB'}
                     </span>
-                    <span className={running ? 'text-gray-200' : 'text-gray-500'}>
+                    <span
+                      className={running ? 'text-gray-200' : 'text-gray-500'}
+                      title={[ds.command, ...ds.args].join(' ')}
+                    >
                       {ds.label}
                     </span>
                   </button>
