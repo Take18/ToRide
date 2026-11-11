@@ -98,6 +98,7 @@
 - **エージェントの選択**: タスクフォームで選ぶ（編集も可）。既定は設定の `agentDefaults[type]` → `defaultAgentId` → `claude` の順に引く。MCP の `create_task` は `agent` を受け取り、PR 自動同期と常駐オーケストレータも同じ既定値で起票する
 - **起動ボタン**: モードとモデルの候補をタスクのエージェントに合わせる。Codex のモデルは `codex debug models` の `visibility: "list"` の slug で、取れなければ候補なし（既定モデルで起動）
 - **起動モード**: normal は `-s workspace-write -a on-request`、auto は `--approve-for-me`、bypass は `--dangerously-bypass-approvals-and-sandbox`。plan は引数なしで起動し、起動後に `/plan` を送って切り替えてから本文を送る
+- **ターミナル履歴**: `--no-alt-screen` で通常の画面バッファに描画し、パネルを閉じていた間の出力も後からスクロールできるようにする
 - **完了検知とセッションID**: 起動のたびに `-c` で SessionStart / Stop の hook と MCP（`/mcp`）を渡す。hook は `~/.toride/hooks/codex-hook.sh` を呼び、SessionStart で `/agent-session`、Stop で既存の `/task-done` に POST する。`~/.codex/hooks.json` や `config.toml` には書かない
 - **再開**: SessionStart で保存した `sessionId` があるときだけ再開ボタンを出す。`codex resume <id> -c 'tui.resume_cwd="session"'` で元の cwd で再開する
 - **カード**: Claude 以外のタスクにはエージェント名のバッジを出し、ホバーで使えない機能を示す。PR URL は検知しない
