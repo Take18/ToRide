@@ -50,6 +50,8 @@ export class TerminalService {
     ptyProcess.onExit(() => {
       if (this.sessions.get(taskId) === ptyProcess) {
         this.sessions.delete(taskId)
+        this.dataListeners.delete(taskId)
+        this.lastWriteAt.delete(taskId)
       }
     })
   }
@@ -169,6 +171,14 @@ export class TerminalService {
       session.kill(signal)
     } catch {
       // 既に終了している
+    }
+    // node-pty の kill() はプロセスへのシグナル送信だけで、PTY の FD は閉じない。
+    // 子孫プロセスが slave 側を保持していると onExit を待っても閉じないため、明示的に破棄する。
+    try {
+      // 実装には destroy() があるが、公開 IPty 型には定義されていない。
+      ;(session as pty.IPty & { destroy?: () => void }).destroy?.()
+    } catch {
+      // 既に破棄されている
     }
   }
 
