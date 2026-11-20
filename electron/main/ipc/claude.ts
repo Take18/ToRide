@@ -202,9 +202,13 @@ async function startTaskOnce(
 
   // rotation 経由の再起動では checkout しない（未コミット変更の破棄は人の判断が必要なため）
   // checkout に失敗してもステータスを doing にしない
-  if (!options?.skipCheckout && 'branch' in task && task.branch) {
-    const baseBranch = 'baseBranch' in task ? task.baseBranch : undefined
-    await gitService.checkout(resolvedWorkdir, task.branch, baseBranch)
+  if (!options?.skipCheckout) {
+    if (task.type === 'review') {
+      await gitService.checkoutPullRequest(resolvedWorkdir, task.url)
+    } else if ('branch' in task && task.branch) {
+      const baseBranch = 'baseBranch' in task ? task.baseBranch : undefined
+      await gitService.checkout(resolvedWorkdir, task.branch, baseBranch)
+    }
   }
 
   // 事前チェックが全て通ってからステータス・paneをdoingに変更
@@ -370,7 +374,9 @@ async function resumeTaskOnce(
     }
   }
 
-  if ('branch' in task && task.branch) {
+  if (task.type === 'review') {
+    await gitService.checkoutPullRequest(resolvedWorkdir, task.url)
+  } else if ('branch' in task && task.branch) {
     const baseBranch = 'baseBranch' in task ? task.baseBranch : undefined
     await gitService.checkout(resolvedWorkdir, task.branch, baseBranch)
   }
