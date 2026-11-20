@@ -72,6 +72,41 @@ export class GitService {
     }
   }
 
+  async checkoutPullRequest(workdir: string, prUrl: string): Promise<void> {
+    const url = new URL(prUrl)
+    const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/([1-9]\d*)(?:\/|$)/)
+    if (url.hostname !== 'github.com' || !match) {
+      throw new Error('GitHub PRのURLを解析できませんでした')
+    }
+
+    const [, owner, repo, number] = match
+    const remoteName = await this.getRemoteFullName(workdir)
+    if (remoteName?.toLowerCase() !== `${owner}/${repo}`.toLowerCase()) {
+      throw new Error(`PRのリポジトリ ${owner}/${repo} とペインのoriginが一致しません`)
+    }
+
+    const git = simpleGit(workdir)
+    const branch = `review/pr-${number}`
+    const remoteRef = `refs/remotes/origin/pull/${number}/head`
+    await git.raw(['fetch', 'origin', `+refs/pull/${number}/head:${remoteRef}`])
+
+    const localBranches = await git.branchLocal()
+    if (localBranches.all.includes(branch)) {
+      const localHead = (await git.revparse([branch])).trim()
+      const prHead = (await git.revparse([remoteRef])).trim()
+      if (localHead !== prHead) {
+        const ancestor = await git.raw(['merge-base', localHead, prHead])
+        if (ancestor.trim() !== localHead) {
+          throw new Error(`${branch} にPRのheadと異なるローカルコミットがあります`)
+        }
+      }
+      await git.raw(['switch', branch])
+      if (localHead !== prHead) await git.raw(['merge', '--ff-only', remoteRef])
+    } else {
+      await git.raw(['switch', '-c', branch, remoteRef])
+    }
+  }
+
   async getRemoteFullName(workdir: string): Promise<string | null> {
     try {
       const git = simpleGit(workdir)
