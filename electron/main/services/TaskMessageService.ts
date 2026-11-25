@@ -62,7 +62,8 @@ export class TaskMessageService {
     deps.stopHookService.setDeliverer((taskId) => this.onStop(taskId))
   }
 
-  async send(input: { to: string; from?: string; message: string }): Promise<SendResult> {
+  /** label を渡すと、タスク以外（ToRide 自身など）からの送信としてその名前を見出しに使う */
+  async send(input: { to: string; from?: string; label?: string; message: string }): Promise<SendResult> {
     const tasks = this.deps.taskService.list()
     const target = tasks.find((t) => t.id === input.to)
     if (!target) throw new Error(`Task not found: ${input.to}. Use list_tasks to get valid task IDs.`)
@@ -72,7 +73,9 @@ export class TaskMessageService {
     }
     if (input.from && input.from === input.to) throw new Error('Cannot send a message to yourself.')
     const sender = input.from ? tasks.find((t) => t.id === input.from) : undefined
-    const text = formatMessage(input.message, sender, input.from)
+    const text = input.label
+      ? `[ToRide] ${input.label}:\n${input.message}`
+      : formatMessage(input.message, sender, input.from)
 
     const provider = this.deps.getProvider(target)
     if (provider.queueMessage) {
