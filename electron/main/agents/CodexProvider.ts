@@ -2,7 +2,8 @@ import fs from 'fs'
 import path from 'path'
 import { homedir } from 'os'
 import type { LaunchMode } from '../../../src/types/ipc'
-import type { AgentCapabilities, AgentCommand, AgentProvider, AgentReadiness, CommandSource, InjectStep, LaunchOptions } from './types'
+import type { AgentCapabilities, AgentCommand, AgentProvider, AgentReadiness, CommandSource, InjectStep, LatestAssistantMessage, LatestAssistantMessageResult, LaunchOptions, TranscriptLocation } from './types'
+import { parseJsonLine, scanLinesBackward } from '../utils/transcript'
 import { parseJsonOutput, runCodex } from './codexCli'
 
 const CAPABILITIES: AgentCapabilities = {
@@ -75,6 +76,12 @@ function shellQuote(s: string): string {
 /** TOML の基本文字列。JSON の文字列リテラルと互換なのでそのまま使う */
 function tomlString(s: string): string {
   return JSON.stringify(s)
+}
+
+type CodexRolloutLine = {
+  timestamp?: string
+  type?: string
+  payload?: { type?: string; role?: string; content?: Array<{ type?: string; text?: string }> }
 }
 
 export class CodexProvider implements AgentProvider {
@@ -212,6 +219,32 @@ export class CodexProvider implements AgentProvider {
   // skills はリポジトリの .agents/skills・~/.agents/skills・$CODEX_HOME/skills/.system から読まれる（0.154.0 で実測）。
   // $ のあとに書くのはディレクトリ名ではなく frontmatter の name。
   // ~/.codex/prompts のカスタムプロンプトは deprecated で動かないので候補にしない
+  async readLatestAssistantMessage({ transcriptPath }: TranscriptLocation): Promise<LatestAssistantMessageResult> {
+    // rollout のパスは SessionStart hook で届く。届く前（起動直後・hook 未設定）は読めない
+    if (!transcriptPath) return { ok: false, reason: 'セッションの記録ファイル（rollout）がまだ届いていません' }
+    let message: LatestAssistantMessage | null = null
+    try {
+      await scanLinesBackward(transcriptPath, (line) => {
+        // 巨大なツール出力の行を JSON.parse しないよう先に絞る
+        if (!line.includes('"role":"assistant"')) return false
+        const parsed = parseJsonLine<CodexRolloutLine>(line)
+        const payload = parsed?.payload
+        if (parsed?.type !== 'response_item' || payload?.type !== 'message' || payload.role !== 'assistant') return false
+        const text = (payload.content ?? [])
+          .filter((c) => c.type === 'output_text' && typeof c.text === 'string')
+          .map((c) => c.text)
+          .join('\n')
+          .trim()
+        if (!text) return false
+        message = { text, timestamp: parsed.timestamp }
+        return true
+      })
+    } catch (e) {
+      return { ok: false, reason: `記録ファイルを読めませんでした: ${(e as Error).message}` }
+    }
+    return { ok: true, message }
+  }
+
   commandSources(workdir?: string): CommandSource[] {
     const codexHome = process.env.CODEX_HOME || path.join(homedir(), '.codex')
     const sources: CommandSource[] = []
