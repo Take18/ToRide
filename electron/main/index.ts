@@ -446,7 +446,8 @@ app.whenReady().then(() => {
     getWindow()?.webContents.send('tasks:updated')
   }, startTaskFn, notifyUserFromMcp, (taskId) => rotationService?.getStatus(taskId) ?? null,
     (target) => dismissReviewPr(taskService, dismissedPrService, target),
-    () => dismissedPrService.list(), taskMessageService, new DecisionService(db))
+    () => dismissedPrService.list(), taskMessageService, new DecisionService(db),
+    () => notificationService.list())
   const initialPort = getSettings().stopHookPort ?? 39457
   localHttpServer.start(initialPort).catch((e) => {
     console.error('[LocalHttpServer] failed to start:', e)
