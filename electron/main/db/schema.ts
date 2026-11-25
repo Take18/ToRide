@@ -73,6 +73,22 @@ export function initDatabase(): Database.Database {
 
     CREATE INDEX IF NOT EXISTS idx_notifications_created_at
       ON notifications(created_at DESC);
+
+    -- オーケストレーターがユーザーに出す判断待ちの質問。seq が ID（Q<seq>）の通し番号。
+    -- AUTOINCREMENT にして、行が消えても番号を振り直さない
+    CREATE TABLE IF NOT EXISTS decisions (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      project TEXT,
+      title TEXT NOT NULL,
+      body TEXT,
+      link TEXT,
+      options TEXT,
+      task_id TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      answer TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `)
 
   // マイグレーション: task_runtime.rotation_state（RotationRuntime を JSON で保持）

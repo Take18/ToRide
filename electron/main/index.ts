@@ -10,6 +10,7 @@ import { ClaudeService } from './services/ClaudeService'
 import { DevServerService } from './services/DevServerService'
 import { GitHubService } from './services/GitHubService'
 import { DismissedPrService, dismissReviewPr } from './services/DismissedPrService'
+import { DecisionService } from './services/DecisionService'
 import { LocalHttpServer } from './services/LocalHttpServer'
 import { StopHookService } from './services/StopHookService'
 import { ContextLineService } from './services/ContextLineService'
@@ -445,7 +446,7 @@ app.whenReady().then(() => {
     getWindow()?.webContents.send('tasks:updated')
   }, startTaskFn, notifyUserFromMcp, (taskId) => rotationService?.getStatus(taskId) ?? null,
     (target) => dismissReviewPr(taskService, dismissedPrService, target),
-    () => dismissedPrService.list(), taskMessageService)
+    () => dismissedPrService.list(), taskMessageService, new DecisionService(db))
   const initialPort = getSettings().stopHookPort ?? 39457
   localHttpServer.start(initialPort).catch((e) => {
     console.error('[LocalHttpServer] failed to start:', e)

@@ -10,6 +10,7 @@ import { resolveDefaultAgent } from '../../../src/utils/agent.js'
 import { resolveDevServerUrl } from '../../../src/utils/devServerUrl.js'
 import { normalizePrUrl } from './DismissedPrService.js'
 import type { TaskMessageService } from './TaskMessageService.js'
+import { formatAnswerMessage, type DecisionService } from './DecisionService.js'
 
 export type NotifyLevel = 'info' | 'question' | 'warning'
 
@@ -124,7 +125,8 @@ export class McpServerService {
     getRotationStatus?: (taskId: string) => unknown | null,
     dismissPr?: (target: { taskId?: string; url?: string }) => { url: string; deletedTaskIds: string[] },
     listDismissedPrs?: () => Array<{ url: string; dismissedAt: string }>,
-    taskMessages?: Pick<TaskMessageService, 'send' | 'read'>
+    taskMessages?: Pick<TaskMessageService, 'send' | 'read'>,
+    decisions?: DecisionService
   ) {
     const createServer = (): Server => {
       const server = new Server(
@@ -197,6 +199,8 @@ export class McpServerService {
                 },
               },
             },
+            // Claude Desktop は readOnlyHint がないツールを呼ぶたびに確認を出し、アーティファクトの定期更新が止まる
+            annotations: { readOnlyHint: true },
           },
           {
             name: 'list_repos',
@@ -404,6 +408,81 @@ export class McpServerService {
                 task_id: { type: 'string', description: '自分のタスクID（合図に書かれている値、または環境変数 TORIDE_TASK_ID）' },
               },
               required: ['task_id'],
+            },
+          },
+          {
+            name: 'ask_user',
+            description:
+              'ユーザーに判断を仰ぐ質問を登録する。登録した質問は list_pending_decisions で一覧でき、ユーザーが answer_decision で回答すると ' +
+              'task_id のタスクに send_to_task と同じ経路で「Q3 に回答あり: Q3-A / 補足…」が届く。' +
+              'ID は ToRide が Q1, Q2… の通し番号で採番して返す。回答を受けて対応を終えたら resolve_decision で閉じること',
+            inputSchema: {
+              type: 'object' as const,
+              properties: {
+                project: { type: 'string', description: 'オーケストレーション名など、質問をまとめる単位（任意）' },
+                title: { type: 'string', description: '質問の要点を1行で' },
+                body: { type: 'string', description: '判断に要る背景や補足（任意）' },
+                link: { type: 'string', description: '参考リンク（任意。https のみ）' },
+                options: {
+                  type: 'array',
+                  description: '選択肢（任意）。answer_decision の choice にはここの key を使う',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      key: { type: 'string', description: '選択肢の記号（例: A）' },
+                      label: { type: 'string', description: '選択肢の説明' },
+                    },
+                    required: ['key', 'label'],
+                  },
+                },
+                task_id: {
+                  type: 'string',
+                  description: '質問したタスクのID（環境変数 TORIDE_TASK_ID）。回答の通知先になる。省略すると回答は通知されない',
+                },
+              },
+              required: ['title'],
+            },
+          },
+          {
+            name: 'list_pending_decisions',
+            description:
+              'ユーザーの判断待ちの質問を番号順に一覧する。既定では status が open（未回答）と answered（回答済み・未解決）のものだけを返す',
+            inputSchema: {
+              type: 'object' as const,
+              properties: {
+                include_resolved: { type: 'boolean', description: '解決済み（resolved）の質問も含める（既定 false）' },
+                project: { type: 'string', description: '指定した project の質問だけに絞る' },
+              },
+            },
+            // アーティファクトから定期的に呼ばれるため、確認なしで呼べるよう読み取り専用を宣言する
+            annotations: { readOnlyHint: true },
+          },
+          {
+            name: 'answer_decision',
+            description:
+              '判断待ちの質問に回答する。status を answered にして回答を保存し、質問した task_id のタスクに回答を届ける。' +
+              'choice と text のどちらかは必須。回答済みの質問にもう一度回答すると上書きされる',
+            inputSchema: {
+              type: 'object' as const,
+              properties: {
+                id: { type: 'string', description: '質問のID（例: Q3）' },
+                choice: { type: 'string', description: '選んだ選択肢の key（質問に options があるときだけ）' },
+                text: { type: 'string', description: '自由記述の回答や補足' },
+              },
+              required: ['id'],
+            },
+          },
+          {
+            name: 'resolve_decision',
+            description:
+              '判断待ちの質問を解決済み（resolved）にして閉じる。回答を受けて対応を終えたオーケストレーターが呼ぶ。' +
+              '不要になった未回答の質問を取り下げるのにも使える',
+            inputSchema: {
+              type: 'object' as const,
+              properties: {
+                id: { type: 'string', description: '質問のID（例: Q3）' },
+              },
+              required: ['id'],
             },
           },
           {
@@ -674,6 +753,55 @@ export class McpServerService {
               const messages = taskMessages.read(task_id)
               const text = messages.length ? messages.join('\n\n---\n\n') : '(受信箱は空です)'
               return { content: [{ type: 'text' as const, text }] }
+            }
+            case 'ask_user': {
+              if (!decisions) throw new Error('ask_user is not available')
+              const taskId = typeof args.task_id === 'string' ? args.task_id.trim() : ''
+              if (taskId && !taskService.list().some((t) => t.id === taskId)) {
+                throw new Error(`Task not found: ${taskId}. Use list_tasks to get valid task IDs.`)
+              }
+              const decision = decisions.create(args)
+              return { content: [{ type: 'text' as const, text: toJson({ id: decision.id, status: decision.status }) }] }
+            }
+            case 'list_pending_decisions': {
+              if (!decisions) throw new Error('list_pending_decisions is not available')
+              const { include_resolved, project } = args as { include_resolved?: boolean; project?: string }
+              const list = decisions.list({
+                includeResolved: include_resolved === true,
+                project: typeof project === 'string' && project.trim() ? project.trim() : undefined,
+              })
+              return { content: [{ type: 'text' as const, text: toJson({ count: list.length, decisions: list }) }] }
+            }
+            case 'answer_decision': {
+              if (!decisions) throw new Error('answer_decision is not available')
+              const { id, choice, text } = args as { id?: unknown; choice?: unknown; text?: unknown }
+              if (typeof id !== 'string' || !id.trim()) throw new Error('id is required')
+              const decision = decisions.answer(id, { choice, text })
+              // 回答の保存を先に済ませる。届けられなくても回答は残り、オーケストレーターは一覧から拾える
+              let delivery: unknown = { status: 'skipped', reason: 'no task_id' }
+              if (decision.task_id) {
+                if (!taskMessages) {
+                  delivery = { status: 'failed', reason: 'send_to_task is not available' }
+                } else {
+                  try {
+                    delivery = await taskMessages.send({
+                      to: decision.task_id,
+                      label: '判断待ちの質問への回答',
+                      message: formatAnswerMessage(decision),
+                    })
+                  } catch (e) {
+                    delivery = { status: 'failed', reason: (e as Error).message }
+                  }
+                }
+              }
+              return { content: [{ type: 'text' as const, text: toJson({ decision, delivery }) }] }
+            }
+            case 'resolve_decision': {
+              if (!decisions) throw new Error('resolve_decision is not available')
+              const { id } = args as { id?: unknown }
+              if (typeof id !== 'string' || !id.trim()) throw new Error('id is required')
+              const decision = decisions.resolve(id)
+              return { content: [{ type: 'text' as const, text: toJson({ id: decision.id, status: decision.status }) }] }
             }
             case 'get_dev_server_log': {
               const { repoId, paneId, label, lines, grep } = args as {
