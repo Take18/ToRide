@@ -78,7 +78,7 @@
   - chore: `{directory}`
 - **Stop Hook**: `~/.claude/hooks/stop.sh` でタスク完了を検知・HTTP通知（設定画面からインストール）
 - **Status Line Hook**: `~/.claude/statusline.sh` で各APIレスポンス後にコンテキスト使用量をリアルタイム更新（設定画面からインストール）
-- **MCP サーバー**: `create_task` / `list_tasks` / `list_repos` / `update_task` / `delete_task` / `dismiss_pr` / `list_dismissed_prs` / `start_task` / `list_dev_servers` / `start_dev_server` / `stop_dev_server` / `get_dev_server_log` / `notify_user` / `get_rotation_status` / `send_to_task` / `read_messages` / `ask_user` / `list_pending_decisions` / `answer_decision` / `resolve_decision` / `list_notifications` ツールを公開（設定画面からインストール、`~/.claude/settings.json` に自動登録）
+- **MCP サーバー**: `create_task` / `list_tasks` / `list_repos` / `update_task` / `delete_task` / `dismiss_pr` / `list_dismissed_prs` / `start_task` / `list_dev_servers` / `start_dev_server` / `stop_dev_server` / `get_dev_server_log` / `notify_user` / `get_rotation_status` / `get_task_latest_message` / `send_to_task` / `read_messages` / `ask_user` / `list_pending_decisions` / `answer_decision` / `resolve_decision` / `list_notifications` ツールを公開（設定画面からインストール、`~/.claude/settings.json` に自動登録）
   - `start_task` は `launchMode` パラメータで起動モードを指定可能
   - `update_task` は `title` / `status` / `prompt` / `depends_on` / `rotation` を部分更新できる
   - `list_tasks` と `list_pending_decisions` と `list_notifications` には `annotations.readOnlyHint: true` を付けている。付けないと Claude Desktop が呼び出しのたびに確認を出し、アーティファクトの定期更新が止まる
@@ -87,6 +87,7 @@
   - `get_dev_server_log` は開発サーバーの stdout/stderr を返す（既定は末尾100行・最大1000行、`grep` で行フィルタ可）。停止後もログは残るため異常終了の原因調査に使える
   - `notify_user` はタスク内のClaudeセッションが任意のタイミングでデスクトップ通知を送るツール（`message` 必須 / `level`: info・question・warning / `title` / `taskTitle` / `taskId`）。`taskTitle` からタスクを逆引きし、通知クリックで該当タスクへジャンプする
   - `get_rotation_status` はセッションローテーションの状態（使用率・閾値・回数・履歴・保留/停止）を返す。`update_task` の `rotation` で設定を変更できる
+  - `get_task_latest_message` は、タスクのエージェントが最後に書いたテキスト応答を返す。ツール呼び出しと思考は含めない。Claude は `~/.claude/projects/*/<sessionId>.jsonl`、Codex は SessionStart hook で届いた rollout を末尾から読む
   - `dismiss_pr` はレビュー依頼PRの dismiss（PR自動同期の対象外にしてタスクを削除）。`id`（reviewタスクID）か `url`（PR URL）のどちらか一方を指定する。`url` 指定はタスクが無いPRにも先回りで使える
   - `send_to_task` は実行中（doing）の別タスクにメッセージを送る。宛先が Claude でも Codex でも同じツールで送れて、Codex からも Claude に送れる。相手のターンには割り込まず、今のターンが終わってから届く。`from` に送信元のタスクID（環境変数 `TORIDE_TASK_ID`）を渡すと、本文の頭に送信元と返信方法が付く
   - `read_messages` は自分宛ての受信箱を取り出す。入力待ちの Claude には「read_messages を呼んで」という1行の合図だけを送るので、受け取った側はこれを呼んで本文を読む

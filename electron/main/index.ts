@@ -447,6 +447,13 @@ app.whenReady().then(() => {
   }, startTaskFn, notifyUserFromMcp, (taskId) => rotationService?.getStatus(taskId) ?? null,
     (target) => dismissReviewPr(taskService, dismissedPrService, target),
     () => dismissedPrService.list(), taskMessageService, new DecisionService(db),
+    async (task) => {
+      const provider = agentRegistry.get(task.agent)
+      if (!provider.readLatestAssistantMessage) {
+        return { ok: false, reason: `${provider.displayName} のタスクはメッセージの取得に対応していません` }
+      }
+      return provider.readLatestAssistantMessage({ sessionId: task.sessionId, transcriptPath: task.transcriptPath })
+    },
     () => notificationService.list())
   const initialPort = getSettings().stopHookPort ?? 39457
   localHttpServer.start(initialPort).catch((e) => {

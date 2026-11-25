@@ -19,6 +19,7 @@ import { resolveDevServerUrl } from '../../../src/utils/devServerUrl.js'
 import { normalizePrUrl } from './DismissedPrService.js'
 import type { TaskMessageService } from './TaskMessageService.js'
 import { formatAnswerMessage, type DecisionService } from './DecisionService.js'
+import type { LatestAssistantMessageResult } from '../agents/types.js'
 
 export type NotifyLevel = 'info' | 'question' | 'warning'
 
@@ -158,6 +159,7 @@ export class McpServerService {
     listDismissedPrs?: () => Array<{ url: string; dismissedAt: string }>,
     taskMessages?: Pick<TaskMessageService, 'send' | 'read'>,
     decisions?: DecisionService,
+    readLatestMessage?: (task: RuntimeTask) => Promise<LatestAssistantMessageResult>,
     listNotifications?: () => NotificationRecord[]
   ) {
     const createServer = (): Server => {
@@ -354,6 +356,20 @@ export class McpServerService {
               },
               required: ['id'],
             },
+          },
+          {
+            name: 'get_task_latest_message',
+            description:
+              'タスクのエージェントが最後に書いたメッセージ（アシスタントのテキスト応答。ツール呼び出しや思考は含まない）を取得する。' +
+              '実行中のタスクが今何をしているか・何を報告したかを確認するのに使う',
+            inputSchema: {
+              type: 'object' as const,
+              properties: {
+                id: { type: 'string', description: 'タスクID（list_tasks で確認可能）' },
+              },
+              required: ['id'],
+            },
+            annotations: { readOnlyHint: true },
           },
           {
             name: 'list_dev_servers',
@@ -710,6 +726,29 @@ export class McpServerService {
                 throw new Error(`Task not found: ${id}`)
               }
               return { content: [{ type: 'text' as const, text: JSON.stringify(status, null, 2) }] }
+            }
+            case 'get_task_latest_message': {
+              if (!readLatestMessage) throw new Error('get_task_latest_message is not available')
+              const { id } = args as { id?: string }
+              if (typeof id !== 'string' || !id) throw new Error('id is required')
+              const task = taskService.list().find((t) => t.id === id)
+              if (!task) throw new Error(`Task not found: ${id}. Use list_tasks to get valid task IDs.`)
+              const result = await readLatestMessage(task)
+              if (!result.ok) throw new Error(result.reason)
+              const out: Record<string, unknown> = {
+                id: task.id,
+                title: task.title,
+                status: task.status,
+                agent: task.agent ?? 'claude',
+              }
+              if (result.message) {
+                out.message = result.message.text
+                if (result.message.timestamp) out.timestamp = result.message.timestamp
+              } else {
+                out.message = null
+                out.note = 'まだエージェントの発言がありません'
+              }
+              return { content: [{ type: 'text' as const, text: toJson(out) }] }
             }
             case 'list_dev_servers': {
               const statuses = devServerService.status()

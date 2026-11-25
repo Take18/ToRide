@@ -84,7 +84,24 @@ export interface AgentProvider {
    * 持たないエージェントは ToRide の受信箱にためて、Stop hook の応答で渡す（TaskMessageService）
    */
   queueMessage?(sessionId: string, text: string): Promise<{ ok: true } | { ok: false; reason: string }>
+  /**
+   * セッションの記録ファイルから最後のアシスタント発言（テキストのみ。ツール呼び出しや思考は除く）を読む（get_task_latest_message）。
+   * まだ発言が無ければ null。記録ファイルが見つからないなど読めないときは理由を返す
+   */
+  readLatestAssistantMessage?(session: TranscriptLocation): Promise<LatestAssistantMessageResult>
 }
+
+export type TranscriptLocation = {
+  sessionId?: string
+  /** SessionStart hook で届いた記録ファイルのパス（Codex の rollout） */
+  transcriptPath?: string
+}
+
+export type LatestAssistantMessage = { text: string; timestamp?: string }
+
+export type LatestAssistantMessageResult =
+  | { ok: true; message: LatestAssistantMessage | null }
+  | { ok: false; reason: string }
 
 export type InjectGuard = {
   blockedBy: RegExp
