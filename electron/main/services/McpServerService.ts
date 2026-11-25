@@ -5,7 +5,15 @@ import type { LocalHttpServer } from './LocalHttpServer.js'
 import type { TaskService } from './TaskService.js'
 import type { DevServerService } from './DevServerService.js'
 import type { RuntimeTask, Task } from '../../../src/types/task.js'
-import type { AgentId, AppSettings, ClaudeModel, DevServerExitInfo, LaunchMode } from '../../../src/types/ipc.js'
+import type {
+  AgentId,
+  AppSettings,
+  ClaudeModel,
+  DevServerExitInfo,
+  LaunchMode,
+  NotificationCategory,
+  NotificationRecord,
+} from '../../../src/types/ipc.js'
 import { resolveDefaultAgent } from '../../../src/utils/agent.js'
 import { resolveDevServerUrl } from '../../../src/utils/devServerUrl.js'
 import { normalizePrUrl } from './DismissedPrService.js'
@@ -25,6 +33,29 @@ export type McpUserNotification = {
 }
 
 const NOTIFY_LEVELS: NotifyLevel[] = ['info', 'question', 'warning']
+
+const NOTIFICATION_CATEGORIES: NotificationCategory[] = ['context', 'rotation', 'devserver', 'mcp', 'session']
+
+/** list_notifications の既定件数と上限。履歴の保持上限（200）に合わせる */
+const DEFAULT_NOTIFICATION_LIMIT = 20
+const MAX_NOTIFICATION_LIMIT = 200
+
+/** 通知をMCPレスポンス用に間引く。navigation は種類ごとに形が違うので、引ける ID だけ平らに出す */
+const summarizeNotification = (n: NotificationRecord): Record<string, unknown> => {
+  const out: Record<string, unknown> = {
+    id: n.id,
+    category: n.category,
+    level: n.level,
+    title: n.title,
+    body: n.body,
+    createdAt: n.createdAt,
+    read: n.readAt !== null,
+  }
+  const nav = n.navigation
+  if (nav?.type === 'task' || nav?.type === 'pr-detected') out.taskId = nav.taskId
+  if (nav?.type === 'devserver') out.devServer = { repoId: nav.repoId, paneId: nav.paneId, label: nav.label }
+  return out
+}
 
 /** get_dev_server_log の既定行数と上限。MCPレスポンスがコンテキストを食い潰さないよう抑える */
 const DEFAULT_LOG_LINES = 100
@@ -128,7 +159,8 @@ export class McpServerService {
     listDismissedPrs?: () => Array<{ url: string; dismissedAt: string }>,
     taskMessages?: Pick<TaskMessageService, 'send' | 'read'>,
     decisions?: DecisionService,
-    readLatestMessage?: (task: RuntimeTask) => Promise<LatestAssistantMessageResult>
+    readLatestMessage?: (task: RuntimeTask) => Promise<LatestAssistantMessageResult>,
+    listNotifications?: () => NotificationRecord[]
   ) {
     const createServer = (): Server => {
       const server = new Server(
@@ -474,6 +506,29 @@ export class McpServerService {
             annotations: { readOnlyHint: true },
           },
           {
+            name: 'list_notifications',
+            description:
+              'アプリの通知履歴を新しい順に返す。記録対象はコンテキスト警告（context）・ローテーション（rotation）・開発サーバーの異常終了（devserver）・notify_user（mcp）・起動プロンプトの注入待ち（session）。' +
+              'タスク完了の通知は履歴に残らない。呼び出しても既読にはならない。' +
+              `既定では ${DEFAULT_NOTIFICATION_LIMIT} 件まで返す（最大 ${MAX_NOTIFICATION_LIMIT} 件）`,
+            inputSchema: {
+              type: 'object' as const,
+              properties: {
+                unread_only: { type: 'boolean', description: '未読の通知だけを返す（既定 false）' },
+                category: {
+                  type: 'string',
+                  enum: NOTIFICATION_CATEGORIES,
+                  description: '指定したカテゴリの通知だけに絞る',
+                },
+                limit: {
+                  type: 'number',
+                  description: `返す件数（既定 ${DEFAULT_NOTIFICATION_LIMIT} / 最大 ${MAX_NOTIFICATION_LIMIT}）`,
+                },
+              },
+            },
+            annotations: { readOnlyHint: true },
+          },
+          {
             name: 'answer_decision',
             description:
               '判断待ちの質問に回答する。status を answered にして回答を保存し、質問した task_id のタスクに回答を届ける。' +
@@ -810,6 +865,31 @@ export class McpServerService {
                 project: typeof project === 'string' && project.trim() ? project.trim() : undefined,
               })
               return { content: [{ type: 'text' as const, text: toJson({ count: list.length, decisions: list }) }] }
+            }
+            case 'list_notifications': {
+              if (!listNotifications) throw new Error('list_notifications is not available')
+              const { unread_only, category, limit } = args as {
+                unread_only?: boolean
+                category?: string
+                limit?: number
+              }
+              if (category !== undefined && !NOTIFICATION_CATEGORIES.includes(category as NotificationCategory)) {
+                throw new Error(`Invalid category: ${category}. Use one of ${NOTIFICATION_CATEGORIES.join(' / ')}`)
+              }
+              const max =
+                typeof limit === 'number' && Number.isFinite(limit)
+                  ? Math.min(Math.max(Math.floor(limit), 1), MAX_NOTIFICATION_LIMIT)
+                  : DEFAULT_NOTIFICATION_LIMIT
+              const all = listNotifications()
+              const filtered = all.filter(
+                (n) => (!unread_only || n.readAt === null) && (!category || n.category === category)
+              )
+              const result = {
+                total: filtered.length,
+                unreadCount: all.filter((n) => n.readAt === null).length,
+                notifications: filtered.slice(0, max).map(summarizeNotification),
+              }
+              return { content: [{ type: 'text' as const, text: toJson(result) }] }
             }
             case 'answer_decision': {
               if (!decisions) throw new Error('answer_decision is not available')

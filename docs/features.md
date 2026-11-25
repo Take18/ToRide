@@ -78,10 +78,10 @@
   - chore: `{directory}`
 - **Stop Hook**: `~/.claude/hooks/stop.sh` でタスク完了を検知・HTTP通知（設定画面からインストール）
 - **Status Line Hook**: `~/.claude/statusline.sh` で各APIレスポンス後にコンテキスト使用量をリアルタイム更新（設定画面からインストール）
-- **MCP サーバー**: `create_task` / `list_tasks` / `list_repos` / `update_task` / `delete_task` / `dismiss_pr` / `list_dismissed_prs` / `start_task` / `list_dev_servers` / `start_dev_server` / `stop_dev_server` / `get_dev_server_log` / `notify_user` / `get_rotation_status` / `get_task_latest_message` / `send_to_task` / `read_messages` / `ask_user` / `list_pending_decisions` / `answer_decision` / `resolve_decision` ツールを公開（設定画面からインストール、`~/.claude/settings.json` に自動登録）
+- **MCP サーバー**: `create_task` / `list_tasks` / `list_repos` / `update_task` / `delete_task` / `dismiss_pr` / `list_dismissed_prs` / `start_task` / `list_dev_servers` / `start_dev_server` / `stop_dev_server` / `get_dev_server_log` / `notify_user` / `get_rotation_status` / `get_task_latest_message` / `send_to_task` / `read_messages` / `ask_user` / `list_pending_decisions` / `answer_decision` / `resolve_decision` / `list_notifications` ツールを公開（設定画面からインストール、`~/.claude/settings.json` に自動登録）
   - `start_task` は `launchMode` パラメータで起動モードを指定可能
   - `update_task` は `title` / `status` / `prompt` / `depends_on` / `rotation` を部分更新できる
-  - `list_tasks` と `list_pending_decisions` には `annotations.readOnlyHint: true` を付けている。付けないと Claude Desktop が呼び出しのたびに確認を出し、アーティファクトの定期更新が止まる
+  - `list_tasks` と `list_pending_decisions` と `list_notifications` には `annotations.readOnlyHint: true` を付けている。付けないと Claude Desktop が呼び出しのたびに確認を出し、アーティファクトの定期更新が止まる
   - `create_task` / `list_tasks` / `update_task` / `start_task` のレスポンスは要約のみ（`summarizeTask()`）。`list_tasks` は `id` で1件に絞れ、プロンプト本文は `include_prompt: true` のときだけ含まれる
   - `list_dev_servers` は workdir・実行中タスク情報に加えて直近の終了情報（`lastExitCode` / `lastExitSignal` / `lastExitedAt` / `lastExitReason` / `lastExitMessage`）を含めて返却
   - `get_dev_server_log` は開発サーバーの stdout/stderr を返す（既定は末尾100行・最大1000行、`grep` で行フィルタ可）。停止後もログは残るため異常終了の原因調査に使える
@@ -93,6 +93,7 @@
   - `read_messages` は自分宛ての受信箱を取り出す。入力待ちの Claude には「read_messages を呼んで」という1行の合図だけを送るので、受け取った側はこれを呼んで本文を読む
   - `ask_user` はオーケストレーターがユーザーに判断を仰ぐ質問を登録する（`title` 必須 / `project` / `body` / `link`（https のみ）/ `options`（`[{key, label}]`）/ `task_id`）。ID は `Q1`, `Q2`… の通し番号で、解決しても振り直さない。質問は SQLite の `decisions` テーブルに保存する
   - `list_pending_decisions` は質問を番号順に返す。既定は `status` が `open` と `answered` のものだけで、`include_resolved: true` で解決済みも含める。`project` で絞れる
+  - `list_notifications` は通知履歴（後述）を新しい順に返す。`unread_only` で未読だけ、`category` でカテゴリを絞れる。件数は `limit`（既定 20、最大 200）。呼び出しても既読にはしない
   - `answer_decision` は回答（`choice` と `text` のどちらかは必須）を保存して `status` を `answered` にし、質問の `task_id` のタスクへ `send_to_task` と同じ経路で「Q3 に回答あり: Q3-A（ラベル） / 補足」を届ける。届けられなくても回答は残り、結果は `delivery` で返す
   - `resolve_decision` は対応を終えた質問を `resolved` にして閉じる。未回答の質問の取り下げにも使う
   - `list_dismissed_prs` は dismiss 済みPRを新しい順に返す（`url` / `dismissedAt`）。`url` を渡すと そのPRが dismiss 済みかだけを確認できる。close/merge されたPRは同期時に記録が消えるため、残るのはオープンなPRだけ
