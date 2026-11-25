@@ -2,7 +2,44 @@ import type { ModelListService } from '../services/ModelListService'
 import type { LaunchMode } from '../../../src/types/ipc'
 import path from 'path'
 import { homedir } from 'os'
-import type { AgentCapabilities, AgentCommand, AgentProvider, AgentReadiness, CommandSource, InjectStep, LaunchOptions } from './types'
+import fs from 'fs'
+import type { AgentCapabilities, AgentCommand, AgentProvider, AgentReadiness, CommandSource, InjectStep, LatestAssistantMessage, LatestAssistantMessageResult, LaunchOptions, TranscriptLocation } from './types'
+import { parseJsonLine, scanLinesBackward } from '../utils/transcript'
+
+const PROJECTS_DIR = path.join(homedir(), '.claude', 'projects')
+
+type ClaudeTranscriptLine = {
+  type?: string
+  timestamp?: string
+  isSidechain?: boolean
+  message?: { id?: string; content?: unknown }
+}
+
+/** assistant 行のテキストブロックだけを取り出す（thinking / tool_use は除く） */
+const textBlocks = (content: unknown): string[] =>
+  Array.isArray(content)
+    ? content
+        .filter((c): c is { type: 'text'; text: string } => c?.type === 'text' && typeof c.text === 'string')
+        .map((c) => c.text)
+    : []
+
+/**
+ * セッションIDから transcript（~/.claude/projects/<cwd を変換した名前>/<sessionId>.jsonl）を探す。
+ * cwd からディレクトリ名への変換規則は公開されていないので、projects 配下を走査する
+ */
+const findClaudeTranscript = async (sessionId: string): Promise<string | null> => {
+  let dirs: string[]
+  try {
+    dirs = await fs.promises.readdir(PROJECTS_DIR)
+  } catch {
+    return null
+  }
+  for (const dir of dirs) {
+    const file = path.join(PROJECTS_DIR, dir, `${sessionId}.jsonl`)
+    if (fs.existsSync(file)) return file
+  }
+  return null
+}
 
 const CAPABILITIES: AgentCapabilities = {
   driver: 'pty',
@@ -58,6 +95,46 @@ export class ClaudeProvider implements AgentProvider {
 
   listModels(): Promise<string[]> {
     return this.modelListService.listModels()
+  }
+
+  async readLatestAssistantMessage({ sessionId, transcriptPath }: TranscriptLocation): Promise<LatestAssistantMessageResult> {
+    if (!sessionId && !transcriptPath) return { ok: false, reason: 'セッションIDがありません（未起動のタスク）' }
+    const file = transcriptPath ?? (sessionId ? await findClaudeTranscript(sessionId) : null)
+    // 起動直後は最初のプロンプトが届くまで transcript が作られない
+    if (!file) return { ok: true, message: null }
+
+    // 1つの応答（message.id）は、ブロックごとに別の行に書かれる。
+    // 末尾から最初に見つかったテキストと同じ message.id のテキストを集める
+    let messageId: string | undefined
+    let timestamp: string | undefined
+    const parts: string[] = []
+    try {
+      await scanLinesBackward(file, (line) => {
+        if (messageId === undefined) {
+          // 巨大な tool_result の行を JSON.parse しないよう先に絞る
+          if (!line.includes('"type":"assistant"') || !line.includes('"type":"text"')) return false
+          const parsed = parseJsonLine<ClaudeTranscriptLine>(line)
+          if (parsed?.type !== 'assistant' || parsed.isSidechain) return false
+          const texts = textBlocks(parsed.message?.content)
+          if (!texts.length) return false
+          messageId = parsed.message?.id ?? ''
+          timestamp = parsed.timestamp
+          parts.unshift(...texts)
+          // id が無ければ同じ応答の続きを判定できないので、この行だけにする
+          return messageId === ''
+        }
+        const parsed = parseJsonLine<ClaudeTranscriptLine>(line)
+        if (!parsed) return false
+        if (parsed.type !== 'assistant' || parsed.message?.id !== messageId) return parsed.type === 'user' || parsed.type === 'assistant'
+        parts.unshift(...textBlocks(parsed.message?.content))
+        return false
+      })
+    } catch (e) {
+      return { ok: false, reason: `transcript を読めませんでした: ${(e as Error).message}` }
+    }
+    const text = parts.join('\n\n').trim()
+    const message: LatestAssistantMessage | null = text ? { text, timestamp } : null
+    return { ok: true, message }
   }
 
   // 同名はプロジェクト > ユーザー > プラグインの優先で残す
